@@ -1,0 +1,112 @@
+Home Assignment for Software Engineering Team Lead
+Assignment Overview:
+Create a collaborative GIS application where multiple users can draw and analyze areas on a
+map in real-time, with the ability to switch between regular map and satellite views.
+Core Requirements:
+1. Backend:
+Γùï Implement WebSocket server for real-time updates
+Γùï Create endpoints for:
+Γûá Saving drawn areas with metadata (area name, size calculation)
+Γûá Retrieving all areas within current map bounds
+Γûá User authentication and session management
+Γûá Area versioning and edit history
+Γùï Calculate and return the area size in square kilometers for drawn polygons
+Γùï Handle concurrent drawing from multiple users
+Additional Backend Challenges:
+Γûá Implement rate limiting to prevent abuse (max 50 drawing actions
+per minute per user)
+Γûá Add spatial indexing for efficient area queries within map bounds
+Γûá Create a caching layer for frequently accessed geographic data
+Γûá Implement conflict resolution when multiple users edit the same
+area simultaneously
+Γûá Add data validation for polygon coordinates and prevent invalid
+shapes
+Γûá Log all user actions for audit trail and analytics
+Γûá Implement graceful degradation when WebSocket connections fail
+Γûá Add health check endpoints for monitoring system status
+2. Database Design & Performance:
+Γùï Design efficient schema for storing geospatial data
+Γùï Implement database migrations
+Γùï Add proper indexing for spatial queries
+Γùï Handle large datasets (assume 10,000+ polygons per map region)
+Γùï Implement soft deletes and data retention policies
+3. Security & Reliability:
+Γùï Implement input sanitization and validation
+Γùï Add CORS configuration for cross-origin requests
+Γùï Implement proper error logging and monitoring
+Γùï Add request timeout handling
+Γùï Secure WebSocket connections with authentication tokens
+4. Frontend Map Integration:
+Γùï Implement map using Leaflet.js with two base layers:
+Γûá OpenStreetMap for default view
+Γûá Satellite imagery from govmap.gov.il (╫¿╫Ö╫ò╫ò╫É ╫¥╫ò╫£╫ª╫¬ - ╫É╫ª╫¬)
+Γùï Create a smooth layer transition when switching between views
+Γùï Ensure drawn elements remain properly positioned when switching layers
+5. Real-time Drawing Features:
+Γùï Allow users to draw polygons on both map types
+Γùï Show other users' drawing actions in real-time
+Γùï Display area calculations as the polygon is being drawn
+Γùï Maintain drawing accuracy when switching between satellite and regular
+views
+Γùï Show active users currently viewing/drawing on the map
+6. Technical Challenges:
+Γùï Handle coordinate transformations between different map projections
+Γùï Manage drawing state across layer switches
+Γùï Optimize WebSocket messages for real-time updates
+Γùï Calculate areas accurately considering Earth's curvature
+Advanced Backend Optimization:
+Γûá Implement connection pooling for database access
+Γûá Add message queuing for handling high-volume WebSocket traffic
+Γûá Implement horizontal scaling considerations (how would you
+handle multiple server instances?)
+Γûá Add telemetry and performance metrics collection
+Technical Stack:
+ΓùÅ Backend: Your choice of language with WebSocket support
+ΓùÅ Database: PostgreSQL with PostGIS extension (or justify alternative choice)
+ΓùÅ Frontend: Any modern framework + Leaflet.js
+ΓùÅ No third-party plugins for the collaborative features
+Focus on:
+ΓùÅ Core real-time functionality
+ΓùÅ Backend architecture and scalability considerations
+ΓùÅ Accurate layer switching
+ΓùÅ Basic drawing capabilities
+ΓùÅ Essential error handling
+ΓùÅ Database design and query optimization
+Evaluation Criteria:
+ΓùÅ Implementation of real-time features
+ΓùÅ Backend architecture and code organization
+ΓùÅ Database design and performance considerations
+ΓùÅ Security implementation
+ΓùÅ Handling of map layer transitions
+ΓùÅ Accuracy of area calculations
+ΓùÅ Error handling and logging approach
+ΓùÅ System scalability and monitoring considerations
+ΓùÅ Documentation quality and technical decision explanations
+Submission Guidelines:
+1. GitHub repository containing:
+Γùï Complete source code
+Γùï Database schema and migration files
+Γùï README with:
+Γûá Setup instructions (including database setup)
+Γûá Technical decisions and architecture overview
+Γûá Performance considerations and optimization strategies
+Γûá Security measures implemented
+Γûá Known limitations
+Γûá Future improvements and scaling strategies
+Γûá Testing approach
+Bonus Points (Optional):
+ΓùÅ Docker containerization with docker-compose
+ΓùÅ Unit tests for critical backend functionality
+ΓùÅ API documentation (OpenAPI/Swagger)
+ΓùÅ Performance benchmarking results
+ΓùÅ Load testing considerations
+This task evaluates understanding of:
+ΓùÅ Real-time systems and WebSocket architecture
+ΓùÅ Database design and spatial data handling
+ΓùÅ System scalability and performance optimization
+ΓùÅ Security best practices
+ΓùÅ Map projections and coordinates
+ΓùÅ GIS concepts
+ΓùÅ Concurrent user interactions
+ΓùÅ Monitoring and observability
+ΓùÅ Software architecture patterns
