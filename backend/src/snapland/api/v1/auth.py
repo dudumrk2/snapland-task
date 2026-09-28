@@ -1,0 +1,110 @@
+import typing
+import uuid
+from typing import Annotated, Optional
+from fastapi import APIRouter, Depends, Request, Response, Cookie
+from snapland.core.interfaces.services import IAuthService, IRateLimiter
+from snapland.core.domain.user import RegisterRequest, LoginRequest, TokenResponse, User
+from snapland.core.domain.exceptions import AuthError
+from snapland.middleware.rate_limiter import check_rate_limit
+
+router = APIRouter(prefix="/auth", tags=["auth"])
+
+def get_auth_service(request: Request) -> IAuthService:
+    return request.app.state.auth_service
+
+def get_rate_limiter(request: Request) -> IRateLimiter:
+    return request.app.state.rate_limiter
+
+def get_client_ip(request: Request) -> str:
+    # Basic IP extraction
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0]
+    return request.client.host if request.client else "127.0.0.1"
+
+async def get_current_user_id(request: Request) -> uuid.UUID:
+    # Just a placeholder for token extraction since AuthService handles logic,
+    # or it could use a standard FastAPI OAuth2 bearer token dep.
+    # Assuming standard header: Authorization: Bearer <token>
+    auth = request.headers.get("Authorization")
+    if not auth or not auth.startswith("Bearer "):
+        raise AuthError("Missing or invalid token")
+    token = auth.split(" ")[1]
+    # In a real app we'd decode the JWT here to get user_id.
+    # This assignment doesn't provide decode_token yet, maybe we just use request.state.user_id 
+    if hasattr(request.state, "user_id"):
+        return request.state.user_id
+    raise AuthError("Token not verified")
+
+@router.post("/register", response_model=User)
+async def register(
+    req: RegisterRequest,
+    request: Request,
+    auth_svc: IAuthService = Depends(get_auth_service),
+    limiter: IRateLimiter = Depends(get_rate_limiter)
+):
+    ip = get_client_ip(request)
+    await check_rate_limit(limiter, ip, "auth_register", 20, 60)
+    user = await auth_svc.register(req.email, req.password, req.display_name)
+    return user
+
+@router.post("/login", response_model=TokenResponse)
+async def login(
+    req: LoginRequest,
+    request: Request,
+    response: Response,
+    auth_svc: IAuthService = Depends(get_auth_service),
+    limiter: IRateLimiter = Depends(get_rate_limiter)
+):
+    ip = get_client_ip(request)
+    await check_rate_limit(limiter, ip, "auth_login", 20, 60)
+    
+    tokens = await auth_svc.login(req.email, req.password)
+    response.set_cookie(
+        key="refresh_token",
+        value=tokens.refresh_token,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        path="/api/v1/auth"
+    )
+    return tokens
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh(
+    response: Response,
+    refresh_token: str = Cookie(None),
+    auth_svc: IAuthService = Depends(get_auth_service)
+):
+    if not refresh_token:
+        raise AuthError("No refresh token provided")
+    
+    tokens = await auth_svc.refresh_token(refresh_token)
+    response.set_cookie(
+        key="refresh_token",
+        value=tokens.refresh_token,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        path="/api/v1/auth"
+    )
+    return tokens
+
+@router.post("/logout")
+async def logout(
+    response: Response,
+    refresh_token: str = Cookie(None),
+    auth_svc: IAuthService = Depends(get_auth_service)
+):
+    if refresh_token:
+        await auth_svc.revoke_token(refresh_token)
+    response.delete_cookie("refresh_token", path="/api/v1/auth")
+    return {"status": "ok"}
+
+@router.post("/ws-ticket")
+async def ws_ticket(
+    user_id: uuid.UUID = Depends(get_current_user_id),
+    auth_svc: IAuthService = Depends(get_auth_service)
+):
+    ticket = await auth_svc.issue_ws_ticket(user_id)
+    return {"ticket": ticket}
