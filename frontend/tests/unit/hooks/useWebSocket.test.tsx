@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { useWebSocket } from '../../../src/hooks/useWebSocket';
 import { ApiProvider } from '../../../src/providers/ApiProvider';
 import { MockWebSocketService } from '../../../src/api/mock/mockWebSocketService';
@@ -24,12 +24,14 @@ describe('useWebSocket', () => {
   it('connects and receives presence snapshot', async () => {
     const { result } = renderHook(() => useWebSocket(true), { wrapper });
 
-    // Wait for connection simulated delay
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 150));
-    });
+    // Use waitFor to avoid race condition with MockAuthApi latency + MockWebSocketService connect delay
+    await waitFor(
+      () => {
+        expect(result.current.connectionState).toBe('connected');
+      },
+      { timeout: 500 }
+    );
 
-    expect(result.current.connectionState).toBe('connected');
     expect(result.current.presenceUsers.length).toBeGreaterThan(0);
   });
 
