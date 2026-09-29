@@ -34,18 +34,19 @@ class AuthService(IAuthService):
     async def register(self, email: str, password: str, display_name: str) -> User:
         pwd_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12)).decode()
         # Create user (password hash might be handled outside or added to User model)
-        user = User(id=uuid.uuid4(), email=email, display_name=display_name)
+        user = User(id=uuid.uuid4(), email=email, display_name=display_name, password_hash=pwd_hash)
         # Note: if User gets updated with password_hash, we'd pass it here
         user = await self.user_repo.create(user)
         return user
 
-    async def login(self, email: str, password: str) -> TokenResponse:
+    async def login(self, email: str, password: str, ip_address: str = "0.0.0.0") -> TokenResponse:
         user = await self.user_repo.get_by_email(email)
         if not user:
             raise Exception("Invalid credentials") # simplified for now
         
         # Here we'd normally verify password_hash, assuming it's available.
-        # if not bcrypt.checkpw(password.encode(), user.password_hash.encode()): raise
+        if not user.password_hash or not bcrypt.checkpw(password.encode(), user.password_hash.encode()):
+            raise Exception('Invalid credentials')
         
         access_token = self._create_access_token(user.id)
         refresh_token = secrets.token_urlsafe(32)
@@ -57,14 +58,14 @@ class AuthService(IAuthService):
             refresh_token_hash=self._hash_token(refresh_token),
             expires_at=(datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=self.refresh_token_expire_days)),
             revoked_at=None,
-            ip_address="0.0.0.0", # Simplified
+            ip_address=ip_address,
             created_at=datetime.datetime.now(datetime.UTC)
         )
         await self.session_repo.create(session)
         
         return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 
-    async def refresh_token(self, refresh_token: str) -> TokenResponse:
+    async def refresh_token(self, refresh_token: str, ip_address: str = "0.0.0.0") -> TokenResponse:
         token_hash = self._hash_token(refresh_token)
         session = await self.session_repo.get_by_token_hash(token_hash)
         
@@ -86,7 +87,7 @@ class AuthService(IAuthService):
             refresh_token_hash=self._hash_token(new_refresh),
             expires_at=(datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=self.refresh_token_expire_days)),
             revoked_at=None,
-            ip_address="0.0.0.0",
+            ip_address=ip_address,
             created_at=datetime.datetime.now(datetime.UTC)
         )
         await self.session_repo.create(new_session)
@@ -108,13 +109,10 @@ class AuthService(IAuthService):
 
     async def redeem_ws_ticket(self, ticket: str) -> uuid.UUID | None:
         key = f"ws_ticket:{ticket}"
-        user_id_str = getattr(self.cache_repo, "getdel", self.cache_repo.get)(key)
-        if hasattr(self.cache_repo, "getdel"):
-            user_id_str = await self.cache_repo.getdel(key)
-        else:
-            user_id_str = await self.cache_repo.get(key)
-        if user_id_str:
-            return uuid.UUID(user_id_str)
+        user_id_str = await self.cache_repo.getdel(key)
+        if not user_id_str:
+            return None
+        return uuid.UUID(user_id_str)
         return None
 
     def _create_access_token(self, user_id: uuid.UUID) -> str:

@@ -1,3 +1,6 @@
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 import typing
 import time
 import uuid
@@ -61,10 +64,7 @@ async def check_rate_limit(
     result = await limiter.check_limit(user_id, bucket, limit, window_seconds)
     if not result.allowed:
         raise RateLimitExceeded(retry_after_ms=result.retry_after_ms)
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import JSONResponse
-import uuid
+
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):

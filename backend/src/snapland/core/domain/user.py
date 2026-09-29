@@ -7,6 +7,7 @@ class User(BaseModel):
     id: UUID
     email: str
     display_name: str
+    password_hash: str | None = None
 
 class Session(BaseModel):
     id: UUID
@@ -26,6 +27,7 @@ class RegisterRequest(BaseModel):
     email: str
     password: str
     display_name: str
+    password_hash: str | None = None
 
 class LoginRequest(BaseModel):
     email: str

@@ -13,7 +13,12 @@ from snapland.config import settings
 
 async def get_db() -> AsyncSession: # type: ignore
     async with SessionLocal() as session:
-        yield session
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
 
 def get_redis(request: Request):
     return request.app.state.redis
@@ -32,15 +37,21 @@ def get_auth_service(db: AsyncSession = Depends(get_db), redis = Depends(get_red
         jwt_private_key=settings.JWT_PRIVATE_KEY
     )
 
+class DummyEventPublisher:
+    async def publish(self, topic: str, message: dict) -> None:
+        pass
+
 def get_area_service(db: AsyncSession = Depends(get_db), redis = Depends(get_redis)):
     repo = AreaRepository(db)
     cache = CacheRepository(redis)
     spatial = SpatialService()
     audit = AuditService()
+    events = DummyEventPublisher()
     return AreaService(
         repo=repo,
         spatial=spatial,
         cache=cache,
+        events=events,
         audit=audit
     )
 

@@ -4,7 +4,7 @@ import datetime
 from unittest.mock import AsyncMock, MagicMock
 from snapland.core.services.area_service import AreaService
 from snapland.core.domain.area import Area, Coordinate, CreateAreaRequest, UpdateAreaRequest
-from snapland.core.services.spatial_service import PolygonValidation
+from snapland.core.interfaces.services import PolygonValidation
 from snapland.core.services.conflict_service import ConflictError
 
 @pytest.fixture

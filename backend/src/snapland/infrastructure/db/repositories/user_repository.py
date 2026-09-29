@@ -15,7 +15,8 @@ class UserRepository(BaseRepository[UserModel], IUserRepository):
         return User(
             id=model.id,
             email=model.email,
-            display_name=model.display_name
+            display_name=model.display_name,
+            password_hash=model.password_hash
         )
 
     async def get_by_id(self, user_id: UUID) -> User | None: # type: ignore[override]
@@ -32,7 +33,8 @@ class UserRepository(BaseRepository[UserModel], IUserRepository):
         model = UserModel(
             id=user.id,
             email=user.email,
-            display_name=user.display_name
+            display_name=user.display_name,
+            password_hash=user.password_hash or ''
         )
         self.session.add(model)
         await self.session.flush()

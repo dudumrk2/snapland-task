@@ -28,8 +28,8 @@ class ISpatialService(Protocol):
 
 class IAuthService(Protocol):
     async def register(self, email: str, password: str, display_name: str) -> User: ...
-    async def login(self, email: str, password: str) -> TokenResponse: ...                 # includes refresh token for the cookie
-    async def refresh_token(self, refresh_token: str) -> TokenResponse: ...                # rotates; reuse ⇒ revoke family
+    async def login(self, email: str, password: str, ip_address: str = "0.0.0.0") -> TokenResponse: ...                 # includes refresh token for the cookie
+    async def refresh_token(self, refresh_token: str, ip_address: str = "0.0.0.0") -> TokenResponse: ...                # rotates; reuse ⇒ revoke family
     async def revoke_token(self, refresh_token: str) -> None: ...
     async def issue_ws_ticket(self, user_id: UUID) -> str: ...                             # random, TTL 30 s, single use
     async def redeem_ws_ticket(self, ticket: str) -> UUID | None: ...                      # atomic GETDEL

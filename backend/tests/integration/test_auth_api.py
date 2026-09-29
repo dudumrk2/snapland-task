@@ -1,13 +1,10 @@
-import sys
-import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
-
 import pytest
 import uuid
 from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, MagicMock
 from main import app
-from snapland.api.v1.auth import get_auth_service, get_rate_limiter, get_current_user_id
+from snapland.api.deps import get_auth_service, get_rate_limiter
+from snapland.api.v1.auth import get_current_user_id
 from snapland.core.interfaces.services import RateLimitResult
 from snapland.core.domain.user import User, TokenResponse
 

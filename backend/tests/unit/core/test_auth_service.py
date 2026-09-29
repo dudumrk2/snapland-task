@@ -30,11 +30,15 @@ def mock_cache_repo():
 
 @pytest.fixture
 def auth_service(mock_user_repo, mock_session_repo, mock_cache_repo):
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.hazmat.primitives import serialization
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    private_key = key.private_bytes(encoding=serialization.Encoding.PEM, format=serialization.PrivateFormat.TraditionalOpenSSL, encryption_algorithm=serialization.NoEncryption()).decode()
     return AuthService(
         user_repo=mock_user_repo,
         session_repo=mock_session_repo,
         cache_repo=mock_cache_repo,
-        jwt_private_key="test_secret"
+        jwt_private_key=private_key
     )
 
 @pytest.mark.asyncio
