@@ -1,8 +1,9 @@
 from datetime import datetime
-from typing import Any, Sequence
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel
+
 
 class Coordinate(BaseModel):
     lat: float

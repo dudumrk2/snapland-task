@@ -1,8 +1,11 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol, Sequence
+from typing import Protocol
 from uuid import UUID
+
 from snapland.core.domain.area import Area, AreaVersion
-from snapland.core.domain.user import User, Session
+from snapland.core.domain.user import Session, User
+
 
 @dataclass(frozen=True)
 class AreaPage:

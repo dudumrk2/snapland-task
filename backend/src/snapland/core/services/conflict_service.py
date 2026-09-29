@@ -1,7 +1,3 @@
-from typing import Sequence
-from snapland.core.domain.area import Area
+from snapland.core.domain.exceptions import ConflictError
 
-class ConflictError(Exception):
-    def __init__(self, current_area: Area) -> None:
-        super().__init__("Area was modified by another user")
-        self.current_area = current_area
+__all__ = ["ConflictError"]

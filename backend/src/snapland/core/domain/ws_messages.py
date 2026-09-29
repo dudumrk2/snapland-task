@@ -1,9 +1,10 @@
-from typing import Any, Literal
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from snapland.core.domain.area import Area, Coordinate
+
 
 class PresenceUser(BaseModel):
     user_id: UUID

@@ -2,6 +2,7 @@ from redis.asyncio import Redis
 
 from snapland.core.interfaces.cache import ICacheRepository
 
+
 class CacheRepository(ICacheRepository):
     def __init__(self, redis_client: Redis) -> None:
         self.redis = redis_client
@@ -17,3 +18,9 @@ class CacheRepository(ICacheRepository):
 
     async def incr(self, key: str) -> int:
         return await self.redis.incr(key)
+
+    async def getdel(self, key: str) -> str | None:
+        value = await self.redis.getdel(key)
+        if value is None:
+            return None
+        return value.decode("utf-8") if isinstance(value, bytes) else str(value)

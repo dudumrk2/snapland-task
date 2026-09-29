@@ -1,10 +1,19 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol, Sequence
+from typing import Protocol
 from uuid import UUID
-from snapland.core.domain.area import Area, AreaVersion, Coordinate, CreateAreaRequest, UpdateAreaRequest
-from snapland.core.domain.user import User, TokenResponse
+
+from snapland.core.domain.area import (
+    Area,
+    AreaVersion,
+    Coordinate,
+    CreateAreaRequest,
+    UpdateAreaRequest,
+)
 from snapland.core.domain.events import DomainEvent
+from snapland.core.domain.user import TokenResponse, User
 from snapland.core.interfaces.repositories import AreaPage
+
 
 class IAreaService(Protocol):
     async def create_area(self, req: CreateAreaRequest, user_id: UUID) -> Area: ...
@@ -28,11 +37,12 @@ class ISpatialService(Protocol):
 
 class IAuthService(Protocol):
     async def register(self, email: str, password: str, display_name: str) -> User: ...
-    async def login(self, email: str, password: str) -> TokenResponse: ...                 # includes refresh token for the cookie
-    async def refresh_token(self, refresh_token: str) -> TokenResponse: ...                # rotates; reuse ⇒ revoke family
+    async def login(self, email: str, password: str, ip_address: str = "0.0.0.0") -> TokenResponse: ...                 # includes refresh token for the cookie
+    async def refresh_token(self, refresh_token: str, ip_address: str = "0.0.0.0") -> TokenResponse: ...                # rotates; reuse ⇒ revoke family
     async def revoke_token(self, refresh_token: str) -> None: ...
     async def issue_ws_ticket(self, user_id: UUID) -> str: ...                             # random, TTL 30 s, single use
     async def redeem_ws_ticket(self, ticket: str) -> UUID | None: ...                      # atomic GETDEL
+    def verify_access_token(self, token: str, public_key: str) -> UUID: ...
 
 @dataclass(frozen=True)
 class RateLimitResult:

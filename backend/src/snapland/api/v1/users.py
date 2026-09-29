@@ -1,13 +1,18 @@
-import typing
 import uuid
-from fastapi import APIRouter, Depends, Request
-from snapland.core.domain.user import User
+
+from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from snapland.api.deps import get_db
 from snapland.api.v1.auth import get_current_user_id
+from snapland.core.domain.user import User
+from snapland.infrastructure.db.repositories.user_repository import UserRepository
 
 router = APIRouter(prefix="/users", tags=["users"])
 
-def get_user_repository(request: Request) -> typing.Any:
-    return request.app.state.user_repository
+
+def get_user_repository(db: AsyncSession = Depends(get_db)):
+    return UserRepository(db)
 
 @router.get("/me", response_model=User)
 async def get_me(

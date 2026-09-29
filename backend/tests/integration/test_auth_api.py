@@ -1,13 +1,10 @@
-import sys
-import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
-
 import pytest
 import uuid
 from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, MagicMock
 from main import app
-from snapland.api.v1.auth import get_auth_service, get_rate_limiter, get_current_user_id
+from snapland.api.deps import get_auth_service, get_rate_limiter
+from snapland.api.v1.auth import get_current_user_id
 from snapland.core.interfaces.services import RateLimitResult
 from snapland.core.domain.user import User, TokenResponse
 
@@ -64,7 +61,7 @@ def test_login(auth_service_mock):
     assert response.status_code == 200
     assert response.json()["access_token"] == "access"
     assert "refresh_token" in response.cookies
-    auth_service_mock.login.assert_called_once_with("test@test.com", "password123")
+    auth_service_mock.login.assert_called_once_with("test@test.com", "password123", "testclient")
 
 def test_refresh(auth_service_mock):
     auth_service_mock.refresh_token.return_value = TokenResponse(access_token="new_access", refresh_token="new_refresh")
@@ -74,7 +71,7 @@ def test_refresh(auth_service_mock):
     assert response.status_code == 200
     assert response.json()["access_token"] == "new_access"
     assert response.cookies["refresh_token"] == "new_refresh"
-    auth_service_mock.refresh_token.assert_called_once_with("old_refresh")
+    auth_service_mock.refresh_token.assert_called_once_with("old_refresh", "testclient")
 
 def test_logout(auth_service_mock):
     response = client.post("/api/v1/auth/logout", cookies={"refresh_token": "old_refresh"})

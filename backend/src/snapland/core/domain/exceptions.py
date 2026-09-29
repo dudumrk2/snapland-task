@@ -1,5 +1,6 @@
 from snapland.core.domain.area import Area
 
+
 class SnaplandError(Exception):
     pass
 
@@ -10,6 +11,9 @@ class NotFoundError(SnaplandError):
     pass
 
 class ForbiddenError(SnaplandError):
+    pass
+
+class ValidationError(SnaplandError, ValueError):
     pass
 
 class ConflictError(SnaplandError):
