@@ -1,1 +1,1 @@
-import typing
+"""API v1 package."""

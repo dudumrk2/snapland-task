@@ -1,15 +1,18 @@
-from fastapi import Request, Depends
+from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from snapland.infrastructure.db.session import SessionLocal
-from snapland.infrastructure.db.repositories.area_repository import AreaRepository
-from snapland.infrastructure.db.repositories.user_repository import UserRepository
-from snapland.infrastructure.db.repositories.session_repository import SessionRepository
-from snapland.infrastructure.cache.cache_repository import CacheRepository
+
+from snapland.config import settings
+from snapland.core.domain.events import DomainEvent
 from snapland.core.services.area_service import AreaService
+from snapland.core.services.audit_service import AuditService
 from snapland.core.services.auth_service import AuthService
 from snapland.core.services.spatial_service import SpatialService
-from snapland.core.services.audit_service import AuditService
-from snapland.config import settings
+from snapland.infrastructure.cache.cache_repository import CacheRepository
+from snapland.infrastructure.db.repositories.area_repository import AreaRepository
+from snapland.infrastructure.db.repositories.session_repository import SessionRepository
+from snapland.infrastructure.db.repositories.user_repository import UserRepository
+from snapland.infrastructure.db.session import SessionLocal
+
 
 async def get_db() -> AsyncSession: # type: ignore
     async with SessionLocal() as session:
@@ -38,7 +41,7 @@ def get_auth_service(db: AsyncSession = Depends(get_db), redis = Depends(get_red
     )
 
 class DummyEventPublisher:
-    async def publish(self, topic: str, message: dict) -> None:
+    async def publish(self, event: DomainEvent) -> None:
         pass
 
 def get_area_service(db: AsyncSession = Depends(get_db), redis = Depends(get_redis)):

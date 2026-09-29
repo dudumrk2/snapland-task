@@ -1,10 +1,13 @@
 import math
-from typing import Sequence, Any
+from collections.abc import Sequence
+from typing import Any
+
 import shapely.geometry  # type: ignore
 from pyproj import Geod
 
-from snapland.core.interfaces.services import PolygonValidation, ISpatialService
 from snapland.core.domain.area import Coordinate
+from snapland.core.interfaces.services import ISpatialService, PolygonValidation
+
 
 class SpatialService(ISpatialService):
     def __init__(self) -> None:

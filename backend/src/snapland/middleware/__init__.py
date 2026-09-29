@@ -1,1 +1,1 @@
-import typing
+"""Middleware package."""

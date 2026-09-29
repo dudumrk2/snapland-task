@@ -1,14 +1,29 @@
-import uuid
-import math
 import datetime
-import json
-from typing import Sequence, Any
-from snapland.core.interfaces.services import IAreaService, ISpatialService
-from snapland.core.interfaces.repositories import IAreaRepository, AreaPage
+import math
+import uuid
+from collections.abc import Sequence
+from typing import Any
+
+from snapland.core.domain.area import (
+    Area,
+    AreaVersion,
+    CreateAreaRequest,
+    UpdateAreaRequest,
+)
+from snapland.core.domain.events import AreaCreated, AreaDeleted, AreaUpdated
+from snapland.core.domain.exceptions import (
+    ConflictError,
+    NotFoundError,
+    ValidationError,
+)
 from snapland.core.interfaces.cache import ICacheRepository
-from snapland.core.interfaces.services import IEventPublisher
-from snapland.core.domain.area import Area, AreaVersion, CreateAreaRequest, UpdateAreaRequest
-from snapland.core.domain.exceptions import ConflictError, NotFoundError, ValidationError
+from snapland.core.interfaces.repositories import AreaPage, IAreaRepository
+from snapland.core.interfaces.services import (
+    IAreaService,
+    IEventPublisher,
+    ISpatialService,
+)
+
 
 class AreaService(IAreaService):
     def __init__(
@@ -46,7 +61,12 @@ class AreaService(IAreaService):
         
         created_area = await self.repo.create(area)
         await self.cache.incr("areas:epoch")
-        # Domain events are fired after commit in a real impl, but we might just fire them here
+        created_at_dt = created_area.created_at if isinstance(created_area.created_at, datetime.datetime) else datetime.datetime.fromisoformat(created_area.created_at)
+        await self.events.publish(AreaCreated(
+            area_id=created_area.id,
+            created_at=created_at_dt,
+            created_by=created_area.created_by
+        ))
         return created_area
 
     async def update_area(self, area_id: uuid.UUID, req: UpdateAreaRequest, user_id: uuid.UUID) -> Area:
@@ -82,15 +102,32 @@ class AreaService(IAreaService):
             current_area_now = await self.repo.get_by_id(area_id)
             if current_area_now:
                 raise ConflictError(current_area_now)
-            from snapland.core.domain.exceptions import NotFoundError
             raise NotFoundError("Area not found")
             
         await self.cache.incr("areas:epoch")
+        updated_at_dt = res.updated_at if isinstance(res.updated_at, datetime.datetime) else datetime.datetime.fromisoformat(res.updated_at)
+        await self.events.publish(AreaUpdated(
+            area_id=res.id,
+            version=res.version,
+            updated_at=updated_at_dt,
+            updated_by=user_id
+        ))
         return res
 
     async def delete_area(self, area_id: uuid.UUID, user_id: uuid.UUID) -> None:
         await self.repo.soft_delete(area_id, user_id)
         await self.cache.incr("areas:epoch")
+        await self.events.publish(AreaDeleted(
+            area_id=area_id,
+            deleted_at=datetime.datetime.now(datetime.UTC),
+            deleted_by=user_id
+        ))
+
+    async def get_area(self, area_id: uuid.UUID) -> Area:
+        area = await self.repo.get_by_id(area_id)
+        if not area:
+            raise NotFoundError("Area not found")
+        return area
 
     async def get_areas_in_bounds(self, min_lng: float, min_lat: float, max_lng: float, max_lat: float,
                                   *, zoom: int | None = None, limit: int = 500) -> AreaPage:

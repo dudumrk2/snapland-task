@@ -1,7 +1,8 @@
 import typing
+
+import structlog
 from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel
-import structlog
 
 log = structlog.get_logger(__name__)
 router = APIRouter(tags=["health"])

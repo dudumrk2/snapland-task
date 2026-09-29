@@ -1,5 +1,7 @@
+import os
 import pytest
 import pytest_asyncio
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
@@ -9,25 +11,27 @@ from snapland.infrastructure.db.models import Base
 from main import app
 from snapland.api.deps import get_db
 
-# Use a test DB URL or just default
-TEST_DB_URL = settings.DATABASE_URL + "_test"
+TEST_DB_URL = os.environ.get("TEST_DATABASE_URL", settings.DATABASE_URL)
 
 engine = create_async_engine(TEST_DB_URL, echo=False)
 TestingSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-@pytest_asyncio.fixture(scope="session")
-async def setup_db():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
-    yield
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-
 @pytest_asyncio.fixture
 async def db_session():
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception:
+        pytest.skip("PostgreSQL test database is not reachable")
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
     async with TestingSessionLocal() as session:
-        yield session
+        try:
+            yield session
+        finally:
+            await session.rollback()
 
 @pytest.fixture
 def client(db_session):

@@ -109,3 +109,27 @@ def test_get_history(area_service_mock):
     assert response.status_code == 200
     assert response.json() == []
     area_service_mock.get_history.assert_called_once_with(area_id)
+
+def test_get_area(area_service_mock):
+    area_id = uuid.uuid4()
+    user_id = mock_get_current_user_id()
+    area_service_mock.get_area.return_value = Area(
+        id=area_id, name="Test Area", coordinates=[], area_km2=1.0, version=1,
+        created_by=user_id, last_edited_by=user_id,
+        created_at=datetime.datetime.now(datetime.UTC), updated_at=datetime.datetime.now(datetime.UTC)
+    )
+    
+    response = client.get(f"/api/v1/areas/{area_id}")
+    
+    assert response.status_code == 200
+    assert response.json()["id"] == str(area_id)
+    area_service_mock.get_area.assert_called_once_with(area_id)
+
+def test_get_area_not_found(area_service_mock):
+    from snapland.core.domain.exceptions import NotFoundError
+    area_id = uuid.uuid4()
+    area_service_mock.get_area.side_effect = NotFoundError("Area not found")
+    
+    response = client.get(f"/api/v1/areas/{area_id}")
+    
+    assert response.status_code == 404

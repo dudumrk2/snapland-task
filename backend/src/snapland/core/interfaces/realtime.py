@@ -1,7 +1,10 @@
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
-from typing import AsyncIterator, Protocol, Sequence
+from typing import Protocol
 from uuid import UUID
-from snapland.core.domain.ws_messages import ServerMessage, PresenceUser
+
+from snapland.core.domain.ws_messages import PresenceUser, ServerMessage
+
 
 @dataclass(frozen=True)
 class Envelope:

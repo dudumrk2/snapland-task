@@ -2,6 +2,7 @@ from redis.asyncio import Redis
 
 from snapland.core.interfaces.cache import ICacheRepository
 
+
 class CacheRepository(ICacheRepository):
     def __init__(self, redis_client: Redis) -> None:
         self.redis = redis_client

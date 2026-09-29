@@ -1,5 +1,6 @@
-from uuid import UUID
 from datetime import datetime, timezone
+from uuid import UUID
+
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,6 +8,7 @@ from snapland.core.domain.user import Session
 from snapland.core.interfaces.repositories import ISessionRepository
 from snapland.infrastructure.db.models import SessionModel
 from snapland.infrastructure.db.repositories.base import BaseRepository
+
 
 class SessionRepository(BaseRepository[SessionModel], ISessionRepository):
     def __init__(self, session: AsyncSession) -> None:

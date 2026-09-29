@@ -1,5 +1,6 @@
 from snapland.core.domain.area import Area
 
+
 class SnaplandError(Exception):
     pass
 

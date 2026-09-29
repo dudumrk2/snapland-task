@@ -1,16 +1,17 @@
-import uuid
 import datetime
-import bcrypt
-import jwt
 import hashlib
 import secrets
-from typing import Any
+import uuid
 
-from snapland.core.interfaces.services import IAuthService
-from snapland.core.interfaces.repositories import IUserRepository, ISessionRepository
-from snapland.core.interfaces.cache import ICacheRepository
-from snapland.core.domain.user import User, Session, TokenResponse
+import bcrypt
+import jwt
+
 from snapland.core.domain.exceptions import AuthError
+from snapland.core.domain.user import Session, TokenResponse, User
+from snapland.core.interfaces.cache import ICacheRepository
+from snapland.core.interfaces.repositories import ISessionRepository, IUserRepository
+from snapland.core.interfaces.services import IAuthService
+
 
 class AuthService(IAuthService):
     def __init__(

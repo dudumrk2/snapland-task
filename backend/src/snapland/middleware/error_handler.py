@@ -1,12 +1,18 @@
-import typing
-import logging
 import dataclasses
+import logging
+import typing
+
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
 from snapland.core.domain.exceptions import (
-    AuthError, ForbiddenError, NotFoundError, ConflictError, ValidationError
+    AuthError,
+    ConflictError,
+    ForbiddenError,
+    NotFoundError,
+    ValidationError,
 )
 
 log = logging.getLogger(__name__)

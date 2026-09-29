@@ -1,10 +1,19 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol, Sequence
+from typing import Protocol
 from uuid import UUID
-from snapland.core.domain.area import Area, AreaVersion, Coordinate, CreateAreaRequest, UpdateAreaRequest
-from snapland.core.domain.user import User, TokenResponse
+
+from snapland.core.domain.area import (
+    Area,
+    AreaVersion,
+    Coordinate,
+    CreateAreaRequest,
+    UpdateAreaRequest,
+)
 from snapland.core.domain.events import DomainEvent
+from snapland.core.domain.user import TokenResponse, User
 from snapland.core.interfaces.repositories import AreaPage
+
 
 class IAreaService(Protocol):
     async def create_area(self, req: CreateAreaRequest, user_id: UUID) -> Area: ...

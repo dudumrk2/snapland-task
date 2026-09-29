@@ -1,19 +1,23 @@
-from sqlalchemy import text
 import json
 import uuid
-from uuid import UUID
+from collections.abc import Sequence
 from datetime import datetime, timezone
-from typing import Sequence
+from uuid import UUID
 
-from sqlalchemy import select, update, insert, text, func, cast
-from sqlalchemy.ext.asyncio import AsyncSession
-from geoalchemy2.functions import ST_Intersects, ST_MakeEnvelope, ST_SimplifyPreserveTopology, ST_AsGeoJSON, ST_Area, ST_GeomFromText
+from geoalchemy2.functions import (
+    ST_Intersects,
+    ST_MakeEnvelope,
+    ST_SimplifyPreserveTopology,
+)
 from geoalchemy2.types import Geography
+from sqlalchemy import cast, func, insert, select, text, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from snapland.core.domain.area import Area, AreaVersion, Coordinate
-from snapland.core.interfaces.repositories import IAreaRepository, AreaPage
+from snapland.core.interfaces.repositories import AreaPage, IAreaRepository
 from snapland.infrastructure.db.models import AreaModel, AreaVersionModel, AuditLogModel
 from snapland.infrastructure.db.repositories.base import BaseRepository
+
 
 class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
     def __init__(self, session: AsyncSession) -> None:

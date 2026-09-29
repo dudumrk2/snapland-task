@@ -1,12 +1,12 @@
-import typing
 import uuid
-from typing import Optional, Sequence
-from fastapi import APIRouter, Depends, Request, Query
-from snapland.api.deps import get_auth_service, get_area_service, get_rate_limiter
-from snapland.core.interfaces.services import IAreaService, IRateLimiter
-from snapland.core.interfaces.repositories import AreaPage
-from snapland.core.domain.area import Area, AreaVersion, CreateAreaRequest, UpdateAreaRequest
+
+from fastapi import APIRouter, Depends, Query, Request
+
+from snapland.api.deps import get_area_service, get_rate_limiter
 from snapland.api.v1.auth import get_current_user_id
+from snapland.core.domain.area import Area, CreateAreaRequest, UpdateAreaRequest
+from snapland.core.interfaces.repositories import AreaPage
+from snapland.core.interfaces.services import IAreaService, IRateLimiter
 from snapland.middleware.rate_limiter import check_rate_limit
 
 router = APIRouter(prefix="/areas", tags=["areas"])
@@ -15,13 +15,13 @@ router = APIRouter(prefix="/areas", tags=["areas"])
 async def get_areas(
     request: Request,
     bounds: str = Query(..., description="minLng,minLat,maxLng,maxLat"),
-    zoom: Optional[int] = Query(None),
+    zoom: int | None = Query(None),
     limit: int = Query(500),
     area_svc=Depends(get_area_service),
     limiter=Depends(get_rate_limiter),
 ):
-    from snapland.middleware.rate_limiter import check_rate_limit
     from snapland.api.v1.auth import get_client_ip
+    from snapland.middleware.rate_limiter import check_rate_limit
     ip = get_client_ip(request)
     await check_rate_limit(limiter, ip, "http", 100, 60)
     

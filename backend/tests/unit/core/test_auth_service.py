@@ -4,6 +4,7 @@ import datetime
 from unittest.mock import AsyncMock, MagicMock
 from snapland.core.services.auth_service import AuthService
 from snapland.core.domain.user import User, Session
+from snapland.core.domain.exceptions import AuthError
 
 @pytest.fixture
 def mock_user_repo():
@@ -70,7 +71,7 @@ async def test_login_success(auth_service, mock_user_repo, mock_session_repo):
 async def test_login_invalid_credentials(auth_service, mock_user_repo):
     mock_user_repo.get_by_email.return_value = None
     
-    with pytest.raises(Exception, match="Invalid credentials"):
+    with pytest.raises(AuthError, match="Invalid credentials"):
         await auth_service.login("wrong@test.com", "password123")
 
 @pytest.mark.asyncio
@@ -108,7 +109,7 @@ async def test_refresh_token_revoked(auth_service, mock_session_repo):
     )
     mock_session_repo.get_by_token_hash.return_value = session
     
-    with pytest.raises(Exception, match="Token reused, family revoked"):
+    with pytest.raises(AuthError, match="Token reused, family revoked"):
         await auth_service.refresh_token("revoked_token")
         
     mock_session_repo.revoke_family.assert_called_once_with(session.family_id)
