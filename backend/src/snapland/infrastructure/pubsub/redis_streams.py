@@ -1,6 +1,6 @@
 import asyncio
 import time
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 from pydantic import TypeAdapter
 from redis.asyncio import Redis
@@ -79,11 +79,17 @@ class RedisEventStream(IEventStream, IEventPublisher):
             if last_id != "0-0" and last_id < first_entry_id:
                 resync_required = True
 
-        res = await self.redis.xread({self.stream_key: last_id}, count=limit)
+        raw_res: Any = await self.redis.xread({self.stream_key: last_id}, count=limit)
         events: list[tuple[str, ServerMessage]] = []
-        if res:
-            for _stream_name, messages in res:
-                for msg_id, fields in messages:
+        if raw_res and isinstance(raw_res, list):
+            for stream_item in raw_res:
+                messages = stream_item[1] if isinstance(stream_item, (list, tuple)) and len(stream_item) > 1 else []
+                for msg_entry in messages:
+                    if not isinstance(msg_entry, (list, tuple)) or len(msg_entry) < 2:
+                        continue
+                    msg_id, fields = msg_entry[0], msg_entry[1]
+                    if not isinstance(fields, dict):
+                        continue
                     payload = fields.get(b"payload") or fields.get("payload")
                     if payload:
                         try:
@@ -101,10 +107,16 @@ class RedisEventStream(IEventStream, IEventPublisher):
         last_id = "$"
         while True:
             try:
-                res = await self.redis.xread({self.stream_key: last_id}, block=1000)
-                if res:
-                    for _stream_name, messages in res:
-                        for msg_id, fields in messages:
+                raw_res: Any = await self.redis.xread({self.stream_key: last_id}, block=1000)
+                if raw_res and isinstance(raw_res, list):
+                    for stream_item in raw_res:
+                        messages = stream_item[1] if isinstance(stream_item, (list, tuple)) and len(stream_item) > 1 else []
+                        for msg_entry in messages:
+                            if not isinstance(msg_entry, (list, tuple)) or len(msg_entry) < 2:
+                                continue
+                            msg_id, fields = msg_entry[0], msg_entry[1]
+                            if not isinstance(fields, dict):
+                                continue
                             msg_id_str = msg_id.decode("utf-8") if isinstance(msg_id, bytes) else str(msg_id)
                             last_id = msg_id_str
                             payload = fields.get(b"payload") or fields.get("payload")
