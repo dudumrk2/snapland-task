@@ -65,7 +65,7 @@ class RedisPresenceStore(IPresenceStore):
 
     async def reap_expired(self) -> Sequence[UUID]:
         lock_key = "presence:reap:lock"
-        acquired = await self.redis.set(lock_key, "1", nx=True, px=5000)
+        acquired = await self.redis.set(lock_key, "1", nx=True, px=8000)
         if not acquired:
             return []
             

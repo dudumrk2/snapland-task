@@ -35,6 +35,8 @@ async def websocket_endpoint(
     lastEventId: Optional[str] = None
 ) -> None:
     # 1. Origin check before accepting connection
+    # Note: When WS_ALLOWED_ORIGINS is "*", any Origin (including None/curl) is permitted
+    # for development convenience. For production, strict comma-separated origins must be configured.
     origin = websocket.headers.get("origin")
     allowed_origins = settings.WS_ALLOWED_ORIGINS
     if allowed_origins != "*":
@@ -64,7 +66,7 @@ async def websocket_endpoint(
     conn_id = str(uuid.uuid4())
     conn = await manager.connect(websocket, user_id, conn_id)
 
-    # 4. Resolve user display name
+    # 4. Resolve user display name (scoped session avoids connection pool leak)
     display_name = "User"
     user_repo = getattr(websocket.app.state, "user_repo", None)
     if user_repo:
@@ -73,6 +75,17 @@ async def websocket_endpoint(
             if user:
                 display_name = user.display_name
                 conn.user = user
+        except Exception:
+            pass
+    elif hasattr(websocket.app.state, "session_factory") and websocket.app.state.session_factory:
+        try:
+            from snapland.infrastructure.db.repositories.user_repository import UserRepository
+            async with websocket.app.state.session_factory() as session:
+                repo = UserRepository(session)
+                user = await repo.get_by_id(user_id)
+                if user:
+                    display_name = user.display_name
+                    conn.user = user
         except Exception:
             pass
 

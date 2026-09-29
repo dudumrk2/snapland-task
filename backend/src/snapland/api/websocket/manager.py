@@ -1,13 +1,26 @@
 import asyncio
+import logging
 from typing import Dict, Optional
 from uuid import UUID
 
 import orjson
 from fastapi import WebSocket
 
-from snapland.core.domain.ws_messages import ServerMessage
+from snapland.core.domain.user import User
+from snapland.core.domain.ws_messages import RemoteDrawMessage, ServerMessage
 
-WS_MESSAGES_DROPPED_TOTAL: int = 0
+logger = logging.getLogger(__name__)
+
+try:
+    from prometheus_client import Counter
+    WS_MESSAGES_DROPPED_TOTAL = Counter(
+        "ws_messages_dropped_total",
+        "Total dropped ephemeral messages due to full queue",
+        ["reason"],
+    )
+except Exception:
+    WS_MESSAGES_DROPPED_TOTAL = None  # type: ignore[assignment]
+
 
 class Connection:
     def __init__(self, websocket: WebSocket, user_id: UUID, conn_id: str):
@@ -18,7 +31,7 @@ class Connection:
         self.writer_task: Optional[asyncio.Task] = None
         self.closed = False
         self.dropped_count = 0
-        self.user = None
+        self.user: Optional[User] = None
         
     async def enqueue(self, message: ServerMessage) -> None:
         if self.closed:
@@ -38,8 +51,8 @@ class Connection:
                 try:
                     self.queue.get_nowait()
                     self.dropped_count += 1
-                    global WS_MESSAGES_DROPPED_TOTAL
-                    WS_MESSAGES_DROPPED_TOTAL += 1
+                    if WS_MESSAGES_DROPPED_TOTAL is not None:
+                        WS_MESSAGES_DROPPED_TOTAL.labels(reason="queue_full").inc()
                 except asyncio.QueueEmpty:
                     pass
                     
@@ -50,9 +63,14 @@ class Connection:
                 self.closed = True
                 await self.websocket.close(code=1013)
 
+
 class WebSocketManager:
     def __init__(self):
         self.active_connections: Dict[str, Connection] = {}
+
+    @property
+    def total_dropped_count(self) -> int:
+        return sum(c.dropped_count for c in self.active_connections.values())
 
     async def connect(self, websocket: WebSocket, user_id: UUID, conn_id: str) -> Connection:
         await websocket.accept()
@@ -75,21 +93,26 @@ class WebSocketManager:
                 msg = await conn.queue.get()
                 batch = [msg]
                 
-                # micro-batch window 50ms
-                # but if msg is durable, flush immediately?
-                # HLD 9.3: wait up to 50ms - or flush immediately if durable event is queued.
+                # HLD 9.3: micro-batch window 50ms for ephemeral messages
+                # If msg is durable (or a durable message arrives), flush immediately.
                 is_durable = msg.type in ("AREA_SAVED", "AREA_UPDATED", "AREA_DELETED")
                 if not is_durable:
-                    try:
-                        await asyncio.wait_for(asyncio.sleep(0.05), timeout=0.05)
-                    except asyncio.TimeoutError:
-                        pass
-                
-                while not conn.queue.empty():
-                    m = conn.queue.get_nowait()
-                    batch.append(m)
-                    if m.type in ("AREA_SAVED", "AREA_UPDATED", "AREA_DELETED"):
-                        break # flush immediately
+                    deadline = asyncio.get_running_loop().time() + 0.05
+                    while True:
+                        remaining = deadline - asyncio.get_running_loop().time()
+                        if remaining <= 0:
+                            break
+                        try:
+                            m = await asyncio.wait_for(conn.queue.get(), timeout=remaining)
+                            batch.append(m)
+                            if m.type in ("AREA_SAVED", "AREA_UPDATED", "AREA_DELETED"):
+                                break
+                        except asyncio.TimeoutError:
+                            break
+                else:
+                    while not conn.queue.empty():
+                        m = conn.queue.get_nowait()
+                        batch.append(m)
                 
                 coalesced = self._coalesce(batch)
                 
@@ -98,11 +121,11 @@ class WebSocketManager:
                 
         except asyncio.CancelledError:
             pass
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("WebSocket writer error on conn %s: %s", conn.conn_id, e)
+            conn.closed = True
 
     def _coalesce(self, batch: list[ServerMessage]) -> list[ServerMessage]:
-        from snapland.core.domain.ws_messages import RemoteDrawMessage
         cursors: dict[UUID, ServerMessage] = {}
         draws: dict[str, RemoteDrawMessage] = {}
         

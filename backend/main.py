@@ -19,7 +19,6 @@ from snapland.config import settings
 from snapland.core.domain.ws_messages import UserLeftMessage, UserLeftPayload
 from snapland.core.interfaces.realtime import IEphemeralBus, IEventStream, IPresenceStore
 from snapland.infrastructure.cache.cache_repository import CacheRepository
-from snapland.infrastructure.db.repositories.user_repository import UserRepository
 from snapland.infrastructure.pubsub.redis_presence import RedisPresenceStore
 from snapland.infrastructure.pubsub.redis_pubsub import RedisEphemeralBus
 from snapland.infrastructure.pubsub.redis_streams import RedisEventStream
@@ -144,9 +143,8 @@ async def lifespan(app: FastAPI):
     if not hasattr(app.state, "ws_manager") or app.state.ws_manager is None:
         app.state.ws_manager = ws_manager
 
-    if not hasattr(app.state, "user_repo") or app.state.user_repo is None:
-        session_factory = async_sessionmaker(app.state.db_engine, class_=AsyncSession, expire_on_commit=False)
-        app.state.user_repo = UserRepository(session_factory())
+    if not hasattr(app.state, "session_factory") or app.state.session_factory is None:
+        app.state.session_factory = async_sessionmaker(app.state.db_engine, class_=AsyncSession, expire_on_commit=False)
 
     tasks = [
         asyncio.create_task(run_ephemeral_subscriber(app)),
@@ -155,17 +153,18 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(run_presence_heartbeat(app)),
     ]
 
-    yield
+    try:
+        yield
+    finally:
+        logger.info("Application shutting down", instance_id=settings.INSTANCE_ID)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
-    logger.info("Application shutting down", instance_id=settings.INSTANCE_ID)
-    for task in tasks:
-        task.cancel()
-    await asyncio.gather(*tasks, return_exceptions=True)
-
-    if hasattr(app.state, "redis"):
-        await app.state.redis.aclose()
-    if hasattr(app.state, "db_engine"):
-        await app.state.db_engine.dispose()
+        if hasattr(app.state, "redis"):
+            await app.state.redis.aclose()
+        if hasattr(app.state, "db_engine"):
+            await app.state.db_engine.dispose()
 
 
 app = FastAPI(title="Snapland API", lifespan=lifespan)

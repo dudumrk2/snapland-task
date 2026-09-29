@@ -1,10 +1,11 @@
 import asyncio
 import time
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Optional
 
 from pydantic import TypeAdapter
 from redis.asyncio import Redis
 
+from snapland.config import settings
 from snapland.core.domain.events import AreaCreated, AreaDeleted, AreaUpdated, DomainEvent
 from snapland.core.domain.ws_messages import (
     AreaDeletedMessage,
@@ -103,8 +104,20 @@ class RedisEventStream(IEventStream, IEventPublisher):
 
         return CatchUp(events=events, resync_required=resync_required)
 
-    async def follow(self) -> AsyncIterator[tuple[str, ServerMessage]]:
-        last_id = "$"
+    async def follow(self, start_id: Optional[str] = None) -> AsyncIterator[tuple[str, ServerMessage]]:
+        offset_key = f"{self.stream_key}:last_id:{settings.INSTANCE_ID}"
+        if start_id:
+            last_id = start_id
+        else:
+            try:
+                saved = await self.redis.get(offset_key)
+                if saved:
+                    last_id = saved.decode("utf-8") if isinstance(saved, bytes) else str(saved)
+                else:
+                    last_id = "$"
+            except Exception:
+                last_id = "$"
+
         while True:
             try:
                 raw_res: Any = await self.redis.xread({self.stream_key: last_id}, block=1000)
@@ -119,6 +132,10 @@ class RedisEventStream(IEventStream, IEventPublisher):
                                 continue
                             msg_id_str = msg_id.decode("utf-8") if isinstance(msg_id, bytes) else str(msg_id)
                             last_id = msg_id_str
+                            try:
+                                await self.redis.set(offset_key, last_id)
+                            except Exception:
+                                pass
                             payload = fields.get(b"payload") or fields.get("payload")
                             if payload:
                                 try:

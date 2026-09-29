@@ -1,3 +1,5 @@
+import logging
+
 import orjson
 
 from snapland.api.websocket.manager import Connection
@@ -55,11 +57,20 @@ async def dispatch_message(conn: Connection, raw_data: str, app_state) -> None:
     out_msg: ServerMessage
 
     if msg_type == "CURSOR_MOVE":
+        lat = payload.get("lat")
+        lng = payload.get("lng")
+        if lat is None or lng is None:
+            return
+        try:
+            lat_f = float(lat)
+            lng_f = float(lng)
+        except (ValueError, TypeError):
+            return
         out_msg = CursorMoveServerMessage(
             payload=CursorMoveServerPayload(
                 userId=conn.user_id,
-                lat=payload["lat"],
-                lng=payload["lng"]
+                lat=lat_f,
+                lng=lng_f
             )
         )
         await ephemeral_bus.publish(Envelope(origin=instance_id, message=out_msg))
@@ -111,6 +122,43 @@ async def dispatch_message(conn: Connection, raw_data: str, app_state) -> None:
             try:
                 await area_service.create_area(req, conn.user_id)
             except Exception as e:
+                await conn.enqueue(ErrorMessage(payload=ErrorPayload(code="INTERNAL_ERROR", message=str(e))))
+        elif hasattr(app_state, "session_factory") and app_state.session_factory:
+            from snapland.core.services.area_service import AreaService
+            from snapland.core.services.audit_service import AuditService
+            from snapland.core.services.spatial_service import SpatialService
+            from snapland.infrastructure.cache.cache_repository import CacheRepository
+            from snapland.infrastructure.db.repositories.area_repository import AreaRepository
+            from snapland.infrastructure.pubsub.redis_streams import RedisEventStream
+
+            try:
+                async with app_state.session_factory() as session:
+                    area_repo = AreaRepository(session)
+                    spatial_svc = SpatialService()
+                    audit_svc = AuditService()
+                    cache_repo = getattr(app_state, "cache_repo", None)
+                    if not cache_repo and hasattr(app_state, "redis"):
+                        cache_repo = CacheRepository(app_state.redis)
+                    event_publisher = getattr(app_state, "event_stream", None)
+                    if not event_publisher and hasattr(app_state, "redis"):
+                        event_publisher = RedisEventStream(app_state.redis)
+                    if cache_repo and event_publisher:
+                        svc = AreaService(
+                            repo=area_repo,
+                            spatial=spatial_svc,
+                            cache=cache_repo,
+                            events=event_publisher,
+                            audit=audit_svc
+                        )
+                        req = CreateAreaRequest(
+                            name=payload.get("name", "Untitled Area"),
+                            coordinates=payload.get("points", []),
+                            shape_id=shape_id
+                        )
+                        await svc.create_area(req, conn.user_id)
+                        await session.commit()
+            except Exception as e:
+                logging.getLogger(__name__).error("Error creating area from DRAW_COMMIT: %s", e, exc_info=e)
                 await conn.enqueue(ErrorMessage(payload=ErrorPayload(code="INTERNAL_ERROR", message=str(e))))
 
     elif msg_type == "DRAW_CANCEL":
