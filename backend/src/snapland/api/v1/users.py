@@ -6,8 +6,12 @@ from snapland.api.v1.auth import get_current_user_id
 
 router = APIRouter(prefix="/users", tags=["users"])
 
-def get_user_repository(request: Request) -> typing.Any:
-    return request.app.state.user_repository
+from snapland.api.deps import get_db
+from snapland.infrastructure.db.repositories.user_repository import UserRepository
+from sqlalchemy.ext.asyncio import AsyncSession
+
+def get_user_repository(db: AsyncSession = Depends(get_db)):
+    return UserRepository(db)
 
 @router.get("/me", response_model=User)
 async def get_me(

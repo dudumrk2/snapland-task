@@ -2,18 +2,13 @@ import typing
 import uuid
 from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, Request, Response, Cookie
+from snapland.api.deps import get_auth_service, get_area_service, get_rate_limiter
 from snapland.core.interfaces.services import IAuthService, IRateLimiter
 from snapland.core.domain.user import RegisterRequest, LoginRequest, TokenResponse, User
 from snapland.core.domain.exceptions import AuthError
 from snapland.middleware.rate_limiter import check_rate_limit
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-def get_auth_service(request: Request) -> IAuthService:
-    return request.app.state.auth_service
-
-def get_rate_limiter(request: Request) -> IRateLimiter:
-    return request.app.state.rate_limiter
 
 def get_client_ip(request: Request) -> str:
     # Basic IP extraction

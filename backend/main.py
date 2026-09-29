@@ -59,8 +59,15 @@ from snapland.infrastructure.jobs.retention import start_retention_scheduler
 @app.on_event("startup")
 async def startup_event():
     logger.info("Application starting up", instance_id=settings.INSTANCE_ID)
-    if hasattr(app.state, "db_engine") and hasattr(app.state, "redis"):
-        app.state.retention_scheduler = start_retention_scheduler(app.state.db_engine, app.state.redis)
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from redis.asyncio import Redis
+    from snapland.middleware.rate_limiter import RedisRateLimiter
+    
+    app.state.db_engine = create_async_engine(settings.DATABASE_URL)
+    app.state.redis = Redis.from_url(settings.REDIS_URL, decode_responses=True)
+    app.state.rate_limiter = RedisRateLimiter(app.state.redis)
+    
+    app.state.retention_scheduler = start_retention_scheduler(app.state.db_engine, app.state.redis)
 
 @app.on_event("shutdown")
 async def shutdown_event():
