@@ -196,7 +196,7 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
                     geom = ST_GeomFromText(:geom, 4326),
                     area_km2 = ST_Area(ST_GeomFromText(:geom, 4326)::geography) / 1000000.0,
                     last_edited_by = :last_edited_by,
-                    version = :version,
+                    version = version + 1,
                     updated_at = :updated_at
                 WHERE id = :id AND version = :expected_version AND deleted_at IS NULL
                 RETURNING id, name, ST_AsGeoJSON(geom) as geojson, area_km2, version, created_by, last_edited_by, created_at, updated_at
@@ -214,7 +214,6 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
                 "name": area.name,
                 "geom": polygon_wkt,
                 "last_edited_by": area.last_edited_by,
-                "version": area.version,
                 "updated_at": area.updated_at,
                 "id": area.id,
                 "expected_version": expected_version
@@ -247,7 +246,7 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
             area_id=area.id,
             area_km2=row.area_km2,
             edited_by=area.last_edited_by,
-            version_number=area.version,
+            version_number=ret_area.version,
             change_type="update",
             created_at=datetime.fromisoformat(area.updated_at) if isinstance(area.updated_at, str) else area.updated_at,
             diff={}
