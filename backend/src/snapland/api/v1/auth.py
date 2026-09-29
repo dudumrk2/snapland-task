@@ -51,7 +51,7 @@ async def login(
     ip = get_client_ip(request)
     await check_rate_limit(limiter, ip, "auth_login", 20, 60)
     
-    tokens = await auth_svc.login(req.email, req.password)
+    tokens = await auth_svc.login(req.email, req.password, ip)
     response.set_cookie(
         key="refresh_token",
         value=tokens.refresh_token,
@@ -64,6 +64,7 @@ async def login(
 
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh(
+    request: Request,
     response: Response,
     refresh_token: str = Cookie(None),
     auth_svc: IAuthService = Depends(get_auth_service)
@@ -71,7 +72,8 @@ async def refresh(
     if not refresh_token:
         raise AuthError("No refresh token provided")
     
-    tokens = await auth_svc.refresh_token(refresh_token)
+    ip = get_client_ip(request)
+    tokens = await auth_svc.refresh_token(refresh_token, ip)
     response.set_cookie(
         key="refresh_token",
         value=tokens.refresh_token,

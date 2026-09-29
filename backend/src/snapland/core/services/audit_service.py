@@ -1,6 +1,6 @@
 import uuid
 from typing import Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 class AuditService:
     def __init__(self, publish_fn: Any = None) -> None:
@@ -12,12 +12,13 @@ class AuditService:
         
         async with SessionLocal() as session:
             model = AuditLogModel(
+                id=uuid.uuid4(),
                 user_id=user_id,
                 action=action,
                 resource_type=entity_type,
                 resource_id=entity_id,
                 details=payload,
-                created_at=datetime.utcnow()
+                created_at=datetime.now(timezone.utc)
             )
             session.add(model)
             await session.commit()

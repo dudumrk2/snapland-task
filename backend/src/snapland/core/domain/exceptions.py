@@ -12,6 +12,9 @@ class NotFoundError(SnaplandError):
 class ForbiddenError(SnaplandError):
     pass
 
+class ValidationError(SnaplandError, ValueError):
+    pass
+
 class ConflictError(SnaplandError):
     def __init__(self, current_area: Area) -> None:
         super().__init__("Area was modified by another user")

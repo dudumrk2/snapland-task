@@ -1,5 +1,6 @@
 from sqlalchemy import text
 import json
+import uuid
 from uuid import UUID
 from datetime import datetime, timezone
 from typing import Sequence
@@ -127,14 +128,13 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
         polygon_wkt = self._coords_to_polygon_text(area.coordinates)
         geom_val = func.ST_GeomFromText(polygon_wkt, 4326)
         
-        # We must compute area_km2 on the DB side if we insert, but we can also just compute it and return.
-        # Actually, if we insert and RETURNING area_km2, we can get it.
         stmt = (
             insert(AreaModel)
             .values(
                 id=area.id,
                 name=area.name,
-                                area_km2=func.ST_Area(cast(geom_val, Geography)) / 1000000.0,
+                geom=geom_val,
+                area_km2=func.ST_Area(cast(geom_val, Geography)) / 1000000.0,
                 created_by=area.created_by,
                 last_edited_by=area.last_edited_by,
                 version=area.version,
@@ -147,21 +147,25 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
         computed_area_km2 = result.scalar()
         
         version_stmt = insert(AreaVersionModel).values(
-                        area_id=area.id,
-                        area_km2=computed_area_km2,
+            id=uuid.uuid4(),
+            area_id=area.id,
+            area_km2=computed_area_km2,
             edited_by=area.created_by,
             version_number=area.version,
             change_type="create",
             created_at=datetime.fromisoformat(area.created_at) if isinstance(area.created_at, str) else area.created_at,
             diff={}
         )
-        # We need UUID for AreaVersionModel.id, if it's missing it will use DB default. Let's assume DB default.
         await self.session.execute(version_stmt)
-        audit_stmt = insert(AuditLogModel).values(user_id=area.created_by, action="create", resource_type="area", resource_id=area.id, details={}, created_at=datetime.fromisoformat(area.created_at) if isinstance(area.created_at, str) else area.created_at)
-        await self.session.execute(audit_stmt)
-        audit_stmt = insert(AuditLogModel).values(user_id=area.last_edited_by, action="update", resource_type="area", resource_id=area.id, details={}, created_at=datetime.fromisoformat(area.updated_at) if isinstance(area.updated_at, str) else area.updated_at)
-        await self.session.execute(audit_stmt)
-        audit_stmt = insert(AuditLogModel).values(user_id=area.created_by, action="create", resource_type="area", resource_id=area.id, details={}, created_at=datetime.fromisoformat(area.created_at) if isinstance(area.created_at, str) else area.created_at)
+        audit_stmt = insert(AuditLogModel).values(
+            id=uuid.uuid4(),
+            user_id=area.created_by,
+            action="create",
+            resource_type="area",
+            resource_id=area.id,
+            details={},
+            created_at=datetime.fromisoformat(area.created_at) if isinstance(area.created_at, str) else area.created_at
+        )
         await self.session.execute(audit_stmt)
         
         await self.session.flush()
@@ -234,10 +238,10 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
             raise ConflictError(ret_area)
             
         # Write area version
-        geom_val = func.ST_GeomFromText(polygon_wkt, 4326)
         version_stmt = insert(AreaVersionModel).values(
+            id=uuid.uuid4(),
             area_id=area.id,
-                        area_km2=row.area_km2,
+            area_km2=row.area_km2,
             edited_by=area.last_edited_by,
             version_number=area.version,
             change_type="update",
@@ -245,7 +249,15 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
             diff={}
         )
         await self.session.execute(version_stmt)
-        audit_stmt = insert(AuditLogModel).values(user_id=area.last_edited_by, action="update", resource_type="area", resource_id=area.id, details={}, created_at=datetime.fromisoformat(area.updated_at) if isinstance(area.updated_at, str) else area.updated_at)
+        audit_stmt = insert(AuditLogModel).values(
+            id=uuid.uuid4(),
+            user_id=area.last_edited_by,
+            action="update",
+            resource_type="area",
+            resource_id=area.id,
+            details={},
+            created_at=datetime.fromisoformat(area.updated_at) if isinstance(area.updated_at, str) else area.updated_at
+        )
         await self.session.execute(audit_stmt)
         await self.session.flush()
         
@@ -273,8 +285,9 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
         version, area_km2, geom = row
         
         version_stmt = insert(AreaVersionModel).values(
+            id=uuid.uuid4(),
             area_id=area_id,
-                        area_km2=area_km2,
+            area_km2=area_km2,
             edited_by=deleted_by,
             version_number=version + 1,
             change_type="delete",
@@ -282,11 +295,16 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
             diff={}
         )
         await self.session.execute(version_stmt)
-        audit_stmt = insert(AuditLogModel).values(user_id=deleted_by, action="delete", resource_type="area", resource_id=area_id, details={}, created_at=now)
+        audit_stmt = insert(AuditLogModel).values(
+            id=uuid.uuid4(),
+            user_id=deleted_by,
+            action="delete",
+            resource_type="area",
+            resource_id=area_id,
+            details={},
+            created_at=now
+        )
         await self.session.execute(audit_stmt)
-        
-        # We also need to increment the version on the area itself for consistency?
-        # The prompt says "create/update/soft_delete write area_versions... in same transaction".
         
         await self.session.flush()
         return True

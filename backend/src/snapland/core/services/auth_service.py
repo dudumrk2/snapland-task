@@ -10,6 +10,7 @@ from snapland.core.interfaces.services import IAuthService
 from snapland.core.interfaces.repositories import IUserRepository, ISessionRepository
 from snapland.core.interfaces.cache import ICacheRepository
 from snapland.core.domain.user import User, Session, TokenResponse
+from snapland.core.domain.exceptions import AuthError
 
 class AuthService(IAuthService):
     def __init__(
@@ -42,11 +43,10 @@ class AuthService(IAuthService):
     async def login(self, email: str, password: str, ip_address: str = "0.0.0.0") -> TokenResponse:
         user = await self.user_repo.get_by_email(email)
         if not user:
-            raise Exception("Invalid credentials") # simplified for now
+            raise AuthError("Invalid credentials")
         
-        # Here we'd normally verify password_hash, assuming it's available.
         if not user.password_hash or not bcrypt.checkpw(password.encode(), user.password_hash.encode()):
-            raise Exception('Invalid credentials')
+            raise AuthError("Invalid credentials")
         
         access_token = self._create_access_token(user.id)
         refresh_token = secrets.token_urlsafe(32)
@@ -70,11 +70,11 @@ class AuthService(IAuthService):
         session = await self.session_repo.get_by_token_hash(token_hash)
         
         if not session:
-            raise Exception("Invalid token")
+            raise AuthError("Invalid or expired refresh token")
             
         if session.revoked_at:
             await self.session_repo.revoke_family(session.family_id)
-            raise Exception("Token reused, family revoked")
+            raise AuthError("Token reused, family revoked")
             
         # Rotate token
         await self.session_repo.revoke(session.id)
@@ -113,7 +113,6 @@ class AuthService(IAuthService):
         if not user_id_str:
             return None
         return uuid.UUID(user_id_str)
-        return None
 
     def _create_access_token(self, user_id: uuid.UUID) -> str:
         expire = datetime.datetime.now(datetime.UTC) + datetime.timedelta(minutes=self.access_token_expire_minutes)
@@ -126,4 +125,4 @@ class AuthService(IAuthService):
             payload = jwt.decode(token, public_key, algorithms=["RS256"])
             return uuid.UUID(payload["sub"])
         except jwt.PyJWTError:
-            raise Exception("Invalid token")
+            raise AuthError("Invalid or expired token")

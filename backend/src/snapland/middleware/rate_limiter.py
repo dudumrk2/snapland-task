@@ -74,5 +74,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             ip = forwarded.split(",")[0] if forwarded else (request.client.host if request.client else "127.0.0.1")
             res = await limiter.check_limit(ip, "http", 100, 60)
             if not res.allowed:
-                return JSONResponse(status_code=429, content={"error": "Too Many Requests"}, headers={"Retry-After": str(int(res.retry_after_ms / 1000))})
+                return JSONResponse(
+                    status_code=429,
+                    content={
+                        "error": "RATE_LIMITED",
+                        "message": "Rate limit exceeded",
+                        "details": {"retryAfterMs": res.retry_after_ms}
+                    },
+                    headers={"Retry-After": str(max(1, res.retry_after_ms // 1000))}
+                )
         return await call_next(request)

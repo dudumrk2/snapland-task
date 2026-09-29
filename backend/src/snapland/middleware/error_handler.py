@@ -6,9 +6,8 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel
 from snapland.core.domain.exceptions import (
-    AuthError, ForbiddenError, NotFoundError, ConflictError
+    AuthError, ForbiddenError, NotFoundError, ConflictError, ValidationError
 )
-from snapland.core.services.conflict_service import ConflictError as BaseConflictError
 
 log = logging.getLogger(__name__)
 
@@ -26,6 +25,17 @@ def setup_error_handlers(app: FastAPI) -> None:
                 "error": "VALIDATION_ERROR",
                 "message": "Invalid request body",
                 "details": {"reason": exc.errors()}
+            }
+        )
+
+    @app.exception_handler(ValidationError)
+    async def domain_validation_exception_handler(request: Request, exc: ValidationError) -> typing.Any:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "VALIDATION_ERROR",
+                "message": str(exc) or "Validation error",
+                "details": {}
             }
         )
 
@@ -84,7 +94,6 @@ def setup_error_handlers(app: FastAPI) -> None:
         )
 
     app.add_exception_handler(ConflictError, conflict_handler)
-    app.add_exception_handler(BaseConflictError, conflict_handler)
 
     @app.exception_handler(RateLimitExceeded)
     async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> typing.Any:

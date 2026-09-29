@@ -26,6 +26,7 @@ def mock_cache_repo():
     repo = MagicMock()
     repo.set = AsyncMock()
     repo.get = AsyncMock()
+    repo.getdel = AsyncMock()
     return repo
 
 @pytest.fixture
@@ -54,7 +55,9 @@ async def test_register(auth_service, mock_user_repo):
 
 @pytest.mark.asyncio
 async def test_login_success(auth_service, mock_user_repo, mock_session_repo):
-    test_user = User(id=uuid.uuid4(), email="test@test.com", display_name="Test")
+    import bcrypt
+    pwd_hash = bcrypt.hashpw(b"password123", bcrypt.gensalt(rounds=4)).decode()
+    test_user = User(id=uuid.uuid4(), email="test@test.com", display_name="Test", password_hash=pwd_hash)
     mock_user_repo.get_by_email.return_value = test_user
     
     result = await auth_service.login("test@test.com", "password123")
@@ -140,9 +143,9 @@ async def test_issue_ws_ticket(auth_service, mock_cache_repo):
 @pytest.mark.asyncio
 async def test_redeem_ws_ticket(auth_service, mock_cache_repo):
     user_id = uuid.uuid4()
-    mock_cache_repo.get.return_value = str(user_id)
+    mock_cache_repo.getdel.return_value = str(user_id)
     
     result = await auth_service.redeem_ws_ticket("valid_ticket")
     
     assert result == user_id
-    mock_cache_repo.get.assert_called_once_with("ws_ticket:valid_ticket")
+    mock_cache_repo.getdel.assert_called_once_with("ws_ticket:valid_ticket")

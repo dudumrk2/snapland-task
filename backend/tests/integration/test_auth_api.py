@@ -61,7 +61,7 @@ def test_login(auth_service_mock):
     assert response.status_code == 200
     assert response.json()["access_token"] == "access"
     assert "refresh_token" in response.cookies
-    auth_service_mock.login.assert_called_once_with("test@test.com", "password123")
+    auth_service_mock.login.assert_called_once_with("test@test.com", "password123", "testclient")
 
 def test_refresh(auth_service_mock):
     auth_service_mock.refresh_token.return_value = TokenResponse(access_token="new_access", refresh_token="new_refresh")
@@ -71,7 +71,7 @@ def test_refresh(auth_service_mock):
     assert response.status_code == 200
     assert response.json()["access_token"] == "new_access"
     assert response.cookies["refresh_token"] == "new_refresh"
-    auth_service_mock.refresh_token.assert_called_once_with("old_refresh")
+    auth_service_mock.refresh_token.assert_called_once_with("old_refresh", "testclient")
 
 def test_logout(auth_service_mock):
     response = client.post("/api/v1/auth/logout", cookies={"refresh_token": "old_refresh"})

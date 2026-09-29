@@ -8,7 +8,7 @@ from snapland.core.interfaces.repositories import IAreaRepository, AreaPage
 from snapland.core.interfaces.cache import ICacheRepository
 from snapland.core.interfaces.services import IEventPublisher
 from snapland.core.domain.area import Area, AreaVersion, CreateAreaRequest, UpdateAreaRequest
-from snapland.core.domain.exceptions import ConflictError
+from snapland.core.domain.exceptions import ConflictError, NotFoundError, ValidationError
 
 class AreaService(IAreaService):
     def __init__(
@@ -28,7 +28,7 @@ class AreaService(IAreaService):
     async def create_area(self, req: CreateAreaRequest, user_id: uuid.UUID) -> Area:
         val = self.spatial.validate_polygon(req.coordinates)
         if not val.valid:
-            raise ValueError(f"Invalid polygon: {val.reason}")
+            raise ValidationError(f"Invalid polygon: {val.reason}")
             
         area_km2 = self.spatial.calculate_area_km2(req.coordinates)
         
@@ -52,7 +52,6 @@ class AreaService(IAreaService):
     async def update_area(self, area_id: uuid.UUID, req: UpdateAreaRequest, user_id: uuid.UUID) -> Area:
         current_area = await self.repo.get_by_id(area_id)
         if not current_area:
-            from snapland.core.domain.exceptions import NotFoundError
             raise NotFoundError("Area not found")
             
         if current_area.version != req.version:
@@ -61,7 +60,7 @@ class AreaService(IAreaService):
         if req.coordinates:
             val = self.spatial.validate_polygon(req.coordinates)
             if not val.valid:
-                raise ValueError(f"Invalid polygon: {val.reason}")
+                raise ValidationError(f"Invalid polygon: {val.reason}")
             area_km2 = self.spatial.calculate_area_km2(req.coordinates)
         else:
             area_km2 = current_area.area_km2
@@ -111,43 +110,53 @@ class AreaService(IAreaService):
         
         cached = await self.cache.get(cache_key)
         if cached:
-            import orjson
-            data = orjson.loads(cached)
-            areas = []
-            for a in data["areas"]:
-                areas.append(Area(
-                    id=uuid.UUID(a["id"]),
-                    name=a["name"],
-                    coordinates=a["coordinates"],
-                    area_km2=a["area_km2"],
-                    version=a["version"],
-                    created_by=uuid.UUID(a["created_by"]),
-                    last_edited_by=uuid.UUID(a["last_edited_by"]),
-                    created_at=a["created_at"],
-                    updated_at=a["updated_at"]
-                ))
-            return AreaPage(areas=areas, truncated=data["truncated"])
+            try:
+                import orjson
+                data = orjson.loads(cached)
+                if isinstance(data, dict) and "areas" in data:
+                    areas = []
+                    for a in data["areas"]:
+                        areas.append(Area(
+                            id=uuid.UUID(a["id"]),
+                            name=a["name"],
+                            coordinates=a["coordinates"],
+                            area_km2=a["area_km2"],
+                            version=a["version"],
+                            created_by=uuid.UUID(a["created_by"]),
+                            last_edited_by=uuid.UUID(a["last_edited_by"]),
+                            created_at=a["created_at"],
+                            updated_at=a["updated_at"]
+                        ))
+                    return AreaPage(areas=areas, truncated=data.get("truncated", False))
+            except Exception:
+                pass
             
         page = await self.repo.get_within_bounds(s_min_lng, s_min_lat, s_max_lng, s_max_lat, zoom=zoom, limit=limit)
         
-        import orjson
-        page_dict = {
-            "truncated": page.truncated,
-            "areas": [
-                {
-                    "id": str(a.id),
-                    "name": a.name,
-                    "coordinates": a.coordinates,
-                    "area_km2": a.area_km2,
-                    "version": a.version,
-                    "created_by": str(a.created_by),
-                    "last_edited_by": str(a.last_edited_by),
-                    "created_at": a.created_at if isinstance(a.created_at, str) else a.created_at.isoformat(),
-                    "updated_at": a.updated_at if isinstance(a.updated_at, str) else a.updated_at.isoformat()
-                } for a in page.areas
-            ]
-        }
-        await self.cache.set(cache_key, orjson.dumps(page_dict).decode("utf-8"), 60)
+        try:
+            page_areas = getattr(page, "areas", []) or []
+            if not isinstance(page_areas, (list, tuple)):
+                page_areas = []
+            import orjson
+            page_dict = {
+                "truncated": bool(getattr(page, "truncated", False)),
+                "areas": [
+                    {
+                        "id": str(getattr(a, "id", "")),
+                        "name": str(getattr(a, "name", "")),
+                        "coordinates": [c.model_dump() if hasattr(c, "model_dump") else c for c in getattr(a, "coordinates", [])],
+                        "area_km2": float(getattr(a, "area_km2", 0.0)),
+                        "version": int(getattr(a, "version", 1)),
+                        "created_by": str(getattr(a, "created_by", "")),
+                        "last_edited_by": str(getattr(a, "last_edited_by", "")),
+                        "created_at": a.created_at if isinstance(getattr(a, "created_at", None), str) else (a.created_at.isoformat() if hasattr(a, "created_at") else ""),
+                        "updated_at": a.updated_at if isinstance(getattr(a, "updated_at", None), str) else (a.updated_at.isoformat() if hasattr(a, "updated_at") else "")
+                    } for a in page_areas
+                ]
+            }
+            await self.cache.set(cache_key, orjson.dumps(page_dict).decode("utf-8"), 60)
+        except Exception:
+            pass
         return page
 
     async def get_history(self, area_id: uuid.UUID) -> Sequence[AreaVersion]:
