@@ -1,10 +1,13 @@
-import pytest
-import uuid
 import datetime
+import uuid
 from unittest.mock import AsyncMock, MagicMock
-from snapland.core.services.auth_service import AuthService
-from snapland.core.domain.user import User, Session
+
+import pytest
+
 from snapland.core.domain.exceptions import AuthError
+from snapland.core.domain.user import Session, User
+from snapland.core.services.auth_service import AuthService
+
 
 @pytest.fixture
 def mock_user_repo():
@@ -32,8 +35,8 @@ def mock_cache_repo():
 
 @pytest.fixture
 def auth_service(mock_user_repo, mock_session_repo, mock_cache_repo):
-    from cryptography.hazmat.primitives.asymmetric import rsa
     from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     private_key = key.private_bytes(encoding=serialization.Encoding.PEM, format=serialization.PrivateFormat.TraditionalOpenSSL, encryption_algorithm=serialization.NoEncryption()).decode()
     return AuthService(

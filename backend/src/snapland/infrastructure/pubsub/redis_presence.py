@@ -7,6 +7,7 @@ from redis.asyncio import Redis
 from snapland.core.domain.ws_messages import PresenceUser
 from snapland.core.interfaces.realtime import IPresenceStore
 
+
 class RedisPresenceStore(IPresenceStore):
     def __init__(self, redis: Redis):
         self.redis = redis
@@ -32,16 +33,19 @@ class RedisPresenceStore(IPresenceStore):
                 break
                 
         if not has_more:
-            await self.redis.hdel("presence:names", str(user_id))
+            await self.redis.hdel("presence:names", str(user_id))  # type: ignore[misc]
             return True
         return False
 
     async def snapshot(self) -> Sequence[PresenceUser]:
-        members = await self.redis.zrange("presence:global", 0, -1)
+        now = int(time.time() * 1000)
+        threshold = now - 30000
+        members = await self.redis.zrangebyscore("presence:global", threshold, "+inf")
         user_ids = set()
         for member in members:
             try:
-                uid_str = member.decode("utf-8").split(":")[0]
+                m_str = member.decode("utf-8") if isinstance(member, bytes) else str(member)
+                uid_str = m_str.split(":")[0]
                 user_ids.add(uid_str)
             except Exception:
                 pass
@@ -50,12 +54,13 @@ class RedisPresenceStore(IPresenceStore):
             return []
             
         users_list = list(user_ids)
-        names = await self.redis.hmget("presence:names", users_list)
+        names = await self.redis.hmget("presence:names", users_list)  # type: ignore[misc]
         
         result = []
         for uid_str, name in zip(users_list, names):
             if name:
-                result.append(PresenceUser(user_id=UUID(uid_str), display_name=name.decode("utf-8")))
+                name_str = name.decode("utf-8") if isinstance(name, bytes) else str(name)
+                result.append(PresenceUser(user_id=UUID(uid_str), display_name=name_str))
         return result
 
     async def reap_expired(self) -> Sequence[UUID]:
@@ -76,7 +81,8 @@ class RedisPresenceStore(IPresenceStore):
         expired_users = set()
         for member in expired:
             try:
-                uid_str = member.decode("utf-8").split(":")[0]
+                m_str = member.decode("utf-8") if isinstance(member, bytes) else str(member)
+                uid_str = m_str.split(":")[0]
                 expired_users.add(uid_str)
             except Exception:
                 pass
@@ -94,6 +100,6 @@ class RedisPresenceStore(IPresenceStore):
                     break
             if not has_more:
                 fully_left.append(UUID(uid_str))
-                await self.redis.hdel("presence:names", uid_str)
+                await self.redis.hdel("presence:names", uid_str)  # type: ignore[misc]
                 
         return fully_left

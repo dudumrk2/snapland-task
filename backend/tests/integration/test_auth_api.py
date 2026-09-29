@@ -1,12 +1,14 @@
-import pytest
 import uuid
-from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from fastapi.testclient import TestClient
+
 from main import app
 from snapland.api.deps import get_auth_service, get_rate_limiter
 from snapland.api.v1.auth import get_current_user_id
+from snapland.core.domain.user import TokenResponse, User
 from snapland.core.interfaces.services import RateLimitResult
-from snapland.core.domain.user import User, TokenResponse
 
 client = TestClient(app)
 

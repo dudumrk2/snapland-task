@@ -1,14 +1,16 @@
-import pytest
-import uuid
 import datetime
-from fastapi.testclient import TestClient
+import uuid
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from fastapi.testclient import TestClient
+
 from main import app
-from snapland.api.v1.auth import get_current_user_id, get_rate_limiter
 from snapland.api.v1.areas import get_area_service
-from snapland.core.interfaces.services import RateLimitResult
-from snapland.core.domain.area import Area, AreaVersion
+from snapland.api.v1.auth import get_current_user_id, get_rate_limiter
+from snapland.core.domain.area import Area
 from snapland.core.interfaces.repositories import AreaPage
+from snapland.core.interfaces.services import RateLimitResult
 
 client = TestClient(app)
 

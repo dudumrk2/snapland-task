@@ -1,77 +1,148 @@
 import asyncio
+import logging
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request
-from snapland.api.websocket.manager import WebSocketManager
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
 from snapland.api.websocket.handlers import dispatch_message
+from snapland.api.websocket.manager import WebSocketManager
+from snapland.config import settings
+from snapland.core.domain.ws_messages import (
+    PresenceSnapshotMessage,
+    PresenceSnapshotPayload,
+    PresenceUser,
+    ResyncRequiredMessage,
+    ResyncRequiredPayload,
+    UserJoinedMessage,
+    UserJoinedPayload,
+    UserLeftMessage,
+    UserLeftPayload,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 # Global manager instance for this FastAPI worker
 manager = WebSocketManager()
 
+
 @router.websocket("/ws")
 async def websocket_endpoint(
     websocket: WebSocket,
-    request: Request,
     ticket: str,
     lastEventId: Optional[str] = None
-):
-    # Retrieve dependencies from app state or assuming some injection.
-    # The assignment says "ticket validation, Origin check, lifecycle, connect, lastEventId replay"
-    
-    # Origin check
-    origin = request.headers.get("origin")
-    allowed_origins = request.app.state.config.WS_ALLOWED_ORIGINS
-    if origin and origin not in allowed_origins:
-        await websocket.close(code=4003)
-        return
+) -> None:
+    # 1. Origin check before accepting connection
+    origin = websocket.headers.get("origin")
+    allowed_origins = settings.WS_ALLOWED_ORIGINS
+    if allowed_origins != "*":
+        allowed_list = [o.strip() for o in allowed_origins.split(",") if o.strip()]
+        if not origin or origin not in allowed_list:
+            await websocket.close(code=4003)
+            return
 
-    # Validate ticket
-    auth_service = request.app.state.auth_service
-    user_id = await auth_service.redeem_ws_ticket(ticket)
-    if not user_id:
+    # 2. Validate ticket via atomic GETDEL in CacheRepository
+    cache_repo = getattr(websocket.app.state, "cache_repo", None)
+    if not cache_repo and hasattr(websocket.app.state, "redis"):
+        from snapland.infrastructure.cache.cache_repository import CacheRepository
+        cache_repo = CacheRepository(websocket.app.state.redis)
+
+    user_id_str = await cache_repo.getdel(f"ws_ticket:{ticket}") if cache_repo else None
+    if not user_id_str:
         await websocket.close(code=4001)
         return
 
+    try:
+        user_id = uuid.UUID(user_id_str)
+    except Exception:
+        await websocket.close(code=4001)
+        return
+
+    # 3. Connect to manager
     conn_id = str(uuid.uuid4())
     conn = await manager.connect(websocket, user_id, conn_id)
 
-    # Presence join
-    presence_store = request.app.state.presence_store
-    user_repo = request.app.state.user_repo
-    user = await user_repo.get_by_id(user_id)
-    if user:
-        await presence_store.heartbeat(user_id, conn_id, user.display_name)
-        # We need to send PRESENCE_SNAPSHOT and USER_JOINED. This will be done in handlers or here.
-        # But for brevity, assume handlers handle the lifecycle or we do it here.
+    # 4. Resolve user display name
+    display_name = "User"
+    user_repo = getattr(websocket.app.state, "user_repo", None)
+    if user_repo:
+        try:
+            user = await user_repo.get_by_id(user_id)
+            if user:
+                display_name = user.display_name
+                conn.user = user
+        except Exception:
+            pass
 
-    # Replay events
+    # 5. Presence: register heartbeat, send snapshot, broadcast joined
+    presence_store = getattr(websocket.app.state, "presence_store", None)
+    if presence_store:
+        try:
+            await presence_store.heartbeat(user_id, conn_id, display_name)
+            users = await presence_store.snapshot()
+            snapshot_msg = PresenceSnapshotMessage(
+                payload=PresenceSnapshotPayload(users=list(users))
+            )
+            await conn.enqueue(snapshot_msg)
+
+            joined_msg = UserJoinedMessage(
+                payload=UserJoinedPayload(
+                    user=PresenceUser(user_id=user_id, display_name=display_name)
+                )
+            )
+            await manager.broadcast_ephemeral(joined_msg, exclude_conn_id=conn_id)
+        except Exception as e:
+            logger.warning("Presence error on join", exc_info=e)
+
+    # 6. Event stream catch-up / replay if lastEventId is provided
     if lastEventId:
-        event_stream = request.app.state.event_stream
-        catchup = await event_stream.read_since(lastEventId)
-        if catchup.resync_required:
-            from snapland.core.domain.ws_messages import ResyncRequiredMessage, ResyncRequiredPayload
-            await conn.enqueue(ResyncRequiredMessage(payload=ResyncRequiredPayload()))
-        else:
-            for event_id, msg in catchup.events:
-                # Need to update eventId
-                msg.eventId = event_id
-                await conn.enqueue(msg)
+        event_stream = getattr(websocket.app.state, "event_stream", None)
+        if event_stream:
+            try:
+                catchup = await event_stream.read_since(lastEventId)
+                if catchup.resync_required:
+                    await conn.enqueue(
+                        ResyncRequiredMessage(payload=ResyncRequiredPayload(reason="stream_trimmed"))
+                    )
+                else:
+                    for event_id, msg in catchup.events:
+                        if hasattr(msg, "eventId"):
+                            msg.eventId = event_id
+                        await conn.enqueue(msg)
+            except Exception as e:
+                logger.warning("Catch-up replay error", exc_info=e)
 
+    # 7. Connection TTL Task: close with code 4401 after 15 min (access token lifespan)
+    async def connection_ttl_timer():
+        try:
+            await asyncio.sleep(15 * 60)
+            if not conn.closed:
+                conn.closed = True
+                await websocket.close(code=4401, reason="token_expired")
+        except asyncio.CancelledError:
+            pass
+
+    ttl_task = asyncio.create_task(connection_ttl_timer())
+
+    # 8. Main receive loop
     try:
-        while True:
-            # Receive raw text or bytes
+        while not conn.closed:
             data = await websocket.receive_text()
-            # Dispatch to handlers
-            await dispatch_message(conn, data, request.app.state)
+            await dispatch_message(conn, data, websocket.app.state)
     except WebSocketDisconnect:
         pass
+    except Exception as e:
+        logger.debug("WebSocket receive error", exc_info=e)
     finally:
+        ttl_task.cancel()
         await manager.disconnect(conn_id)
-        if user:
-            is_empty = await presence_store.remove(user_id, conn_id)
-            if is_empty:
-                # send USER_LEFT
-                pass
+        if presence_store:
+            try:
+                is_last = await presence_store.remove(user_id, conn_id)
+                if is_last:
+                    left_msg = UserLeftMessage(payload=UserLeftPayload(userId=user_id))
+                    await manager.broadcast_ephemeral(left_msg)
+            except Exception as e:
+                logger.warning("Presence error on disconnect", exc_info=e)

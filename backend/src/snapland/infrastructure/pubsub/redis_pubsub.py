@@ -1,8 +1,9 @@
-import asyncio
 from typing import AsyncIterator
-from redis.asyncio import Redis
-from snapland.core.interfaces.realtime import IEphemeralBus, Envelope
+
 from pydantic import TypeAdapter
+from redis.asyncio import Redis
+
+from snapland.core.interfaces.realtime import Envelope, IEphemeralBus
 
 envelope_adapter = TypeAdapter(Envelope)
 
@@ -29,4 +30,7 @@ class RedisEphemeralBus(IEphemeralBus):
                         pass
         finally:
             await pubsub.unsubscribe(self.channel)
-            await pubsub.close()
+            if hasattr(pubsub, "aclose"):
+                await pubsub.aclose()
+            else:
+                await pubsub.close()

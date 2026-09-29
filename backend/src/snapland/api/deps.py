@@ -45,11 +45,12 @@ class DummyEventPublisher:
         pass
 
 def get_area_service(db: AsyncSession = Depends(get_db), redis = Depends(get_redis)):
+    from snapland.infrastructure.pubsub.redis_streams import RedisEventStream
     repo = AreaRepository(db)
     cache = CacheRepository(redis)
     spatial = SpatialService()
     audit = AuditService()
-    events = DummyEventPublisher()
+    events = RedisEventStream(redis) if redis else DummyEventPublisher()
     return AreaService(
         repo=repo,
         spatial=spatial,

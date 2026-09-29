@@ -1,7 +1,9 @@
+
 import pytest
-from snapland.core.services.spatial_service import SpatialService
+
 from snapland.core.domain.area import Coordinate
-import math
+from snapland.core.services.spatial_service import SpatialService
+
 
 @pytest.fixture
 def spatial_service():

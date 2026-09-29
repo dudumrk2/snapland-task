@@ -1,15 +1,16 @@
 import os
+
 import pytest
 import pytest_asyncio
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
 
-from snapland.config import settings
-from snapland.infrastructure.db.models import Base
 from main import app
 from snapland.api.deps import get_db
+from snapland.config import settings
+from snapland.infrastructure.db.models import Base
 
 TEST_DB_URL = os.environ.get("TEST_DATABASE_URL", settings.DATABASE_URL)
 

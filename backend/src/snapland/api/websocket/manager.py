@@ -1,20 +1,24 @@
 import asyncio
-import orjson
-from typing import Dict, Optional, Callable, Awaitable
+from typing import Dict, Optional
 from uuid import UUID
-import time
 
+import orjson
 from fastapi import WebSocket
+
 from snapland.core.domain.ws_messages import ServerMessage
+
+WS_MESSAGES_DROPPED_TOTAL: int = 0
 
 class Connection:
     def __init__(self, websocket: WebSocket, user_id: UUID, conn_id: str):
         self.websocket = websocket
         self.user_id = user_id
         self.conn_id = conn_id
-        self.queue = asyncio.Queue(maxsize=256)
+        self.queue: asyncio.Queue[ServerMessage] = asyncio.Queue(maxsize=256)
         self.writer_task: Optional[asyncio.Task] = None
         self.closed = False
+        self.dropped_count = 0
+        self.user = None
         
     async def enqueue(self, message: ServerMessage) -> None:
         if self.closed:
@@ -33,6 +37,9 @@ class Connection:
                 # drop oldest
                 try:
                     self.queue.get_nowait()
+                    self.dropped_count += 1
+                    global WS_MESSAGES_DROPPED_TOTAL
+                    WS_MESSAGES_DROPPED_TOTAL += 1
                 except asyncio.QueueEmpty:
                     pass
                     
@@ -87,7 +94,7 @@ class WebSocketManager:
                 coalesced = self._coalesce(batch)
                 
                 data = [m.model_dump(exclude_none=True) for m in coalesced]
-                await conn.websocket.send_bytes(orjson.dumps(data))
+                await conn.websocket.send_text(orjson.dumps(data).decode("utf-8"))
                 
         except asyncio.CancelledError:
             pass
@@ -95,10 +102,11 @@ class WebSocketManager:
             pass
 
     def _coalesce(self, batch: list[ServerMessage]) -> list[ServerMessage]:
-        cursors = {}
-        draws = {}
+        from snapland.core.domain.ws_messages import RemoteDrawMessage
+        cursors: dict[UUID, ServerMessage] = {}
+        draws: dict[str, RemoteDrawMessage] = {}
         
-        result = []
+        result: list[ServerMessage] = []
         for msg in batch:
             if msg.type == "CURSOR_MOVE":
                 cursors[msg.payload.userId] = msg

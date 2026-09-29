@@ -65,7 +65,9 @@ class AreaService(IAreaService):
         await self.events.publish(AreaCreated(
             area_id=created_area.id,
             created_at=created_at_dt,
-            created_by=created_area.created_by
+            created_by=created_area.created_by,
+            area=created_area,
+            shape_id=getattr(req, "shape_id", None)
         ))
         return created_area
 
@@ -110,7 +112,8 @@ class AreaService(IAreaService):
             area_id=res.id,
             version=res.version,
             updated_at=updated_at_dt,
-            updated_by=user_id
+            updated_by=user_id,
+            area=res
         ))
         return res
 
