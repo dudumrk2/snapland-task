@@ -3,6 +3,7 @@ import structlog
 import logging
 import sys
 from snapland.middleware.error_handler import setup_error_handlers
+from snapland.middleware.rate_limiter import RateLimitMiddleware
 from snapland.middleware.request_id import RequestIdMiddleware
 from snapland.middleware.metrics import MetricsMiddleware, metrics_endpoint
 from snapland.middleware.timeout import TimeoutMiddleware
@@ -43,6 +44,7 @@ app = FastAPI(title="Snapland API")
 app.add_middleware(TimeoutMiddleware, timeout=30.0)
 app.add_middleware(MetricsMiddleware)
 app.add_middleware(RequestIdMiddleware)
+app.add_middleware(RateLimitMiddleware)
 setup_error_handlers(app)
 
 app.add_route("/metrics", metrics_endpoint, methods=["GET"])

@@ -61,3 +61,18 @@ async def check_rate_limit(
     result = await limiter.check_limit(user_id, bucket, limit, window_seconds)
     if not result.allowed:
         raise RateLimitExceeded(retry_after_ms=result.retry_after_ms)
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+import uuid
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        limiter = request.app.state.rate_limiter if hasattr(request.app.state, "rate_limiter") else None
+        if limiter:
+            forwarded = request.headers.get("X-Forwarded-For")
+            ip = forwarded.split(",")[0] if forwarded else (request.client.host if request.client else "127.0.0.1")
+            res = await limiter.check_limit(ip, "http", 100, 60)
+            if not res.allowed:
+                return JSONResponse(status_code=429, content={"error": "Too Many Requests"}, headers={"Retry-After": str(int(res.retry_after_ms / 1000))})
+        return await call_next(request)

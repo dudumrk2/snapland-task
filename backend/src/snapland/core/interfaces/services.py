@@ -33,6 +33,7 @@ class IAuthService(Protocol):
     async def revoke_token(self, refresh_token: str) -> None: ...
     async def issue_ws_ticket(self, user_id: UUID) -> str: ...                             # random, TTL 30 s, single use
     async def redeem_ws_ticket(self, ticket: str) -> UUID | None: ...                      # atomic GETDEL
+    def verify_access_token(self, token: str, public_key: str) -> UUID: ...
 
 @dataclass(frozen=True)
 class RateLimitResult:

@@ -1,3 +1,4 @@
+from sqlalchemy import text
 import json
 from uuid import UUID
 from datetime import datetime, timezone
@@ -10,7 +11,7 @@ from geoalchemy2.types import Geography
 
 from snapland.core.domain.area import Area, AreaVersion, Coordinate
 from snapland.core.interfaces.repositories import IAreaRepository, AreaPage
-from snapland.infrastructure.db.models import AreaModel, AreaVersionModel
+from snapland.infrastructure.db.models import AreaModel, AreaVersionModel, AuditLogModel
 from snapland.infrastructure.db.repositories.base import BaseRepository
 
 class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
@@ -159,6 +160,12 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
         )
         # We need UUID for AreaVersionModel.id, if it's missing it will use DB default. Let's assume DB default.
         await self.session.execute(version_stmt)
+        audit_stmt = insert(AuditLogModel).values(user_id=deleted_by, action="delete", resource_type="area", resource_id=area_id, details={}, created_at=now)
+        await self.session.execute(audit_stmt)
+        audit_stmt = insert(AuditLogModel).values(user_id=area.last_edited_by, action="update", resource_type="area", resource_id=area.id, details={}, created_at=datetime.fromisoformat(area.updated_at) if isinstance(area.updated_at, str) else area.updated_at)
+        await self.session.execute(audit_stmt)
+        audit_stmt = insert(AuditLogModel).values(user_id=area.created_by, action="create", resource_type="area", resource_id=area.id, details={}, created_at=datetime.fromisoformat(area.created_at) if isinstance(area.created_at, str) else area.created_at)
+        await self.session.execute(audit_stmt)
         
         await self.session.flush()
         
@@ -176,53 +183,76 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
 
     async def update(self, area: Area, expected_version: int) -> Area | None:
         polygon_wkt = self._coords_to_polygon_text(area.coordinates)
-        geom_val = func.ST_GeomFromText(polygon_wkt, 4326)
         
-        stmt = (
-            update(AreaModel)
-            .where(AreaModel.id == area.id)
-            .where(AreaModel.version == expected_version)
-            .where(AreaModel.deleted_at.is_(None))
-            .values(
-                name=area.name,
-                geom=geom_val,
-                area_km2=func.ST_Area(cast(geom_val, Geography)) / 1000000.0,
-                last_edited_by=area.last_edited_by,
-                version=area.version,
-                updated_at=datetime.fromisoformat(area.updated_at) if isinstance(area.updated_at, str) else area.updated_at,
+        query = text("""
+            WITH updated AS (
+                UPDATE areas
+                SET name = :name,
+                    geom = ST_GeomFromText(:geom, 4326),
+                    area_km2 = ST_Area(ST_GeomFromText(:geom, 4326)::geography) / 1000000.0,
+                    last_edited_by = :last_edited_by,
+                    version = :version,
+                    updated_at = :updated_at
+                WHERE id = :id AND version = :expected_version AND deleted_at IS NULL
+                RETURNING id, name, ST_AsGeoJSON(geom) as geojson, area_km2, version, created_by, last_edited_by, created_at, updated_at
             )
-            .returning(AreaModel.area_km2)
-        )
-        result = await self.session.execute(stmt)
-        computed_area_km2 = result.scalar()
+            SELECT *, true as is_updated FROM updated
+            UNION ALL
+            SELECT id, name, ST_AsGeoJSON(geom) as geojson, area_km2, version, created_by, last_edited_by, created_at, updated_at, false as is_updated
+            FROM areas
+            WHERE id = :id AND NOT EXISTS (SELECT 1 FROM updated)
+        """)
         
-        if computed_area_km2 is None: # Row not found or version mismatch
-            return None
+        result = await self.session.execute(
+            query, 
+            {
+                "name": area.name,
+                "geom": polygon_wkt,
+                "last_edited_by": area.last_edited_by,
+                "version": area.version,
+                "updated_at": area.updated_at,
+                "id": area.id,
+                "expected_version": expected_version
+            }
+        )
+        row = result.first()
+        
+        if not row:
+            return None # Deleted or doesn't exist
             
+        ret_area = Area(
+            id=row.id,
+            name=row.name,
+            coordinates=list(self._geojson_to_coords(row.geojson)),
+            area_km2=row.area_km2,
+            version=row.version,
+            created_by=row.created_by,
+            last_edited_by=row.last_edited_by,
+            created_at=row.created_at,
+            updated_at=row.updated_at
+        )
+        
+        if not row.is_updated:
+            from snapland.core.services.conflict_service import ConflictError
+            raise ConflictError(ret_area)
+            
+        # Write area version
+        geom_val = func.ST_GeomFromText(polygon_wkt, 4326)
         version_stmt = insert(AreaVersionModel).values(
             area_id=area.id,
             geom=geom_val,
-            area_km2=computed_area_km2,
+            area_km2=row.area_km2,
             edited_by=area.last_edited_by,
             version_number=area.version,
             change_type="update",
             created_at=datetime.fromisoformat(area.updated_at) if isinstance(area.updated_at, str) else area.updated_at,
-            diff={} # Ideally compute diff, but out of scope or we pass it somehow?
+            diff={}
         )
         await self.session.execute(version_stmt)
         await self.session.flush()
         
-        return Area(
-            id=area.id,
-            name=area.name,
-            coordinates=area.coordinates,
-            area_km2=computed_area_km2,
-            version=area.version,
-            created_by=area.created_by,
-            last_edited_by=area.last_edited_by,
-            created_at=area.created_at,
-            updated_at=area.updated_at
-        )
+        return ret_area
+
 
     async def soft_delete(self, area_id: UUID, deleted_by: UUID) -> bool:
         now = datetime.now(timezone.utc)

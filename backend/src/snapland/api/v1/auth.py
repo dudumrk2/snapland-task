@@ -22,19 +22,16 @@ def get_client_ip(request: Request) -> str:
         return forwarded.split(",")[0]
     return request.client.host if request.client else "127.0.0.1"
 
-async def get_current_user_id(request: Request) -> uuid.UUID:
-    # Just a placeholder for token extraction since AuthService handles logic,
-    # or it could use a standard FastAPI OAuth2 bearer token dep.
-    # Assuming standard header: Authorization: Bearer <token>
+async def get_current_user_id(request: Request, auth_svc: IAuthService = Depends(get_auth_service)) -> uuid.UUID:
     auth = request.headers.get("Authorization")
     if not auth or not auth.startswith("Bearer "):
         raise AuthError("Missing or invalid token")
     token = auth.split(" ")[1]
-    # In a real app we'd decode the JWT here to get user_id.
-    # This assignment doesn't provide decode_token yet, maybe we just use request.state.user_id 
-    if hasattr(request.state, "user_id"):
-        return request.state.user_id
-    raise AuthError("Token not verified")
+    from snapland.config import settings
+    try:
+        return auth_svc.verify_access_token(token, settings.JWT_PUBLIC_KEY)
+    except Exception:
+        raise AuthError("Token not verified")
 
 @router.post("/register", response_model=User)
 async def register(

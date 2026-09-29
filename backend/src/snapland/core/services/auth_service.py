@@ -32,7 +32,7 @@ class AuthService(IAuthService):
         return hashlib.sha256(token.encode()).hexdigest()
 
     async def register(self, email: str, password: str, display_name: str) -> User:
-        pwd_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+        pwd_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12)).decode()
         # Create user (password hash might be handled outside or added to User model)
         user = User(id=uuid.uuid4(), email=email, display_name=display_name)
         # Note: if User gets updated with password_hash, we'd pass it here
@@ -108,17 +108,24 @@ class AuthService(IAuthService):
 
     async def redeem_ws_ticket(self, ticket: str) -> uuid.UUID | None:
         key = f"ws_ticket:{ticket}"
-        user_id_str = await self.cache_repo.get(key)
+        user_id_str = getattr(self.cache_repo, "getdel", self.cache_repo.get)(key)
+        if hasattr(self.cache_repo, "getdel"):
+            user_id_str = await self.cache_repo.getdel(key)
+        else:
+            user_id_str = await self.cache_repo.get(key)
         if user_id_str:
-            # We must atomically delete or since there's no del in interface, maybe we can't.
-            # As per HLD, GETDEL is required. If cache repo lacks it, we simulate it here.
-            # Assuming CacheRepository supports it, but ICacheRepository from HLD only has get, set, incr.
-            # We'll just return it.
             return uuid.UUID(user_id_str)
         return None
 
     def _create_access_token(self, user_id: uuid.UUID) -> str:
         expire = datetime.datetime.now(datetime.UTC) + datetime.timedelta(minutes=self.access_token_expire_minutes)
         to_encode = {"sub": str(user_id), "exp": expire}
-        encoded_jwt = jwt.encode(to_encode, self.jwt_private_key, algorithm="HS256")
+        encoded_jwt = jwt.encode(to_encode, self.jwt_private_key, algorithm="RS256")
         return encoded_jwt
+
+    def verify_access_token(self, token: str, public_key: str) -> uuid.UUID:
+        try:
+            payload = jwt.decode(token, public_key, algorithms=["RS256"])
+            return uuid.UUID(payload["sub"])
+        except jwt.PyJWTError:
+            raise Exception("Invalid token")
