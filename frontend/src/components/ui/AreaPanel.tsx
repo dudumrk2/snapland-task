@@ -25,10 +25,10 @@ export const AreaPanel: React.FC<AreaPanelProps> = ({
     <div
       style={{
         position: 'absolute',
-        top: 60,
-        left: 16,
+        top: 64,
+        right: 16,
         width: 320,
-        maxHeight: 'calc(100vh - 80px)',
+        maxHeight: 'calc(100vh - 84px)',
         backgroundColor: '#ffffff',
         borderRadius: 12,
         boxShadow: '0 4px 20px rgba(0,0,0,0.15)',

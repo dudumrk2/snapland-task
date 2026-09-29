@@ -13,6 +13,7 @@ interface StoredUser {
 }
 
 const STORAGE_SESSION_KEY = 'snapland_mock_session';
+const STORAGE_LOGGED_OUT_KEY = 'snapland_logged_out';
 
 export class MockAuthApi implements IAuthApi {
   private users: Map<string, StoredUser> = new Map();
@@ -48,6 +49,7 @@ export class MockAuthApi implements IAuthApi {
     };
 
     if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.removeItem(STORAGE_LOGGED_OUT_KEY);
       window.localStorage.setItem(
         STORAGE_SESSION_KEY,
         JSON.stringify({
@@ -83,6 +85,7 @@ export class MockAuthApi implements IAuthApi {
     };
 
     if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.removeItem(STORAGE_LOGGED_OUT_KEY);
       window.localStorage.setItem(
         STORAGE_SESSION_KEY,
         JSON.stringify({
@@ -98,6 +101,9 @@ export class MockAuthApi implements IAuthApi {
   async refresh(): Promise<TokenResponse> {
     await this.delay();
     if (typeof window !== 'undefined' && window.localStorage) {
+      const isExplicitlyLoggedOut =
+        window.localStorage.getItem(STORAGE_LOGGED_OUT_KEY) === 'true';
+
       const stored = window.localStorage.getItem(STORAGE_SESSION_KEY);
       if (stored) {
         try {
@@ -112,6 +118,29 @@ export class MockAuthApi implements IAuthApi {
         } catch {
           // ignore corrupted json
         }
+      }
+
+      // If user is directly accessing root / and hasn't explicitly logged out, provide default mock session
+      const isRootPath = window.location.pathname === '/' || window.location.pathname === '';
+      if (isRootPath && !isExplicitlyLoggedOut) {
+        const defaultUser = this.users.get('test@example.com')!;
+        const tokenResponse: TokenResponse = {
+          accessToken: `mock-jwt-${defaultUser.id}-${Date.now()}`,
+          tokenType: 'Bearer',
+          expiresIn: 900,
+        };
+        window.localStorage.setItem(
+          STORAGE_SESSION_KEY,
+          JSON.stringify({
+            user: {
+              id: defaultUser.id,
+              email: defaultUser.email,
+              displayName: defaultUser.displayName,
+            },
+            accessToken: tokenResponse.accessToken,
+          })
+        );
+        return tokenResponse;
       }
     }
 
@@ -137,6 +166,7 @@ export class MockAuthApi implements IAuthApi {
     await this.delay();
     if (typeof window !== 'undefined' && window.localStorage) {
       window.localStorage.removeItem(STORAGE_SESSION_KEY);
+      window.localStorage.setItem(STORAGE_LOGGED_OUT_KEY, 'true');
     }
   }
 

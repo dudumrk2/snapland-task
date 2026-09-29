@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback } from 'react';
 import type { LoginRequest, RegisterRequest } from '@snapland/shared-types';
 import { useApi } from '../providers/ApiProvider';
 import { useAuthStore } from '../store/authStore';
@@ -36,12 +36,10 @@ export function useAuth() {
       setSession(currentUser, tokens.accessToken);
     } catch {
       clearSession();
+    } finally {
+      setLoading(false);
     }
   }, [authApi, setSession, clearSession, setLoading]);
-
-  useEffect(() => {
-    initAuth();
-  }, [initAuth]);
 
   const login = useCallback(
     async (req: LoginRequest) => {
@@ -64,6 +62,8 @@ export function useAuth() {
       } catch (err: any) {
         setError(err.message || 'Login failed');
         throw err;
+      } finally {
+        setLoading(false);
       }
     },
     [authApi, setSession, setLoading, setError]
@@ -90,6 +90,8 @@ export function useAuth() {
       } catch (err: any) {
         setError(err.message || 'Registration failed');
         throw err;
+      } finally {
+        setLoading(false);
       }
     },
     [authApi, setSession, setLoading, setError]
@@ -101,6 +103,7 @@ export function useAuth() {
       await authApi.logout();
     } finally {
       clearSession();
+      setLoading(false);
     }
   }, [authApi, clearSession, setLoading]);
 

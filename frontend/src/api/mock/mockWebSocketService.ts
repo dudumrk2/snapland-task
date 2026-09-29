@@ -64,25 +64,8 @@ export class MockWebSocketService implements IWebSocketService {
     // Handle client messages locally in mock
     switch (message.type) {
       case 'DRAW_COMMIT': {
-        const payload = message.payload as WsPayloadMap['DRAW_COMMIT'];
         const eventId = `${Date.now()}-0`;
         this._lastEventId = eventId;
-        // Echo AREA_SAVED to subscribers
-        const areaSavedPayload: WsPayloadMap['AREA_SAVED'] = {
-          area: {
-            id: `area-${Date.now()}`,
-            name: payload.name,
-            coordinates: payload.points,
-            areaKm2: 1.0,
-            version: 1,
-            createdBy: 'currentUser',
-            lastEditedBy: 'currentUser',
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          },
-          shapeId: payload.shapeId,
-        };
-        this.dispatch('AREA_SAVED', areaSavedPayload, eventId);
         break;
       }
       case 'DRAW_CANCEL': {

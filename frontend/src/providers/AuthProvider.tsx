@@ -11,16 +11,14 @@ export interface AuthProviderProps {
 
 /**
  * AuthProvider initialises the session on mount by calling authApi.refresh().
- * It sets the global auth store and exposes isInitialised via context
- * so child components don't render before the session check completes.
+ * It sets the global auth store and ensures loading state finishes cleanly.
  */
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const { authApi } = useApi();
-  const { setSession, clearSession, setLoading } = useAuthStore();
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    useAuthStore.getState().setLoading(true);
 
     authApi
       .refresh()
@@ -30,19 +28,28 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         if (authApi instanceof MockAuthApi) {
           user = authApi.getCurrentUser();
         }
-        setSession(user ?? { id: 'restored', email: '', displayName: 'User' }, tokens.accessToken);
+        useAuthStore.getState().setSession(
+          user ?? { id: 'restored', email: '', displayName: 'User' },
+          tokens.accessToken
+        );
       })
       .catch(() => {
-        if (!cancelled) clearSession();
+        if (!cancelled) {
+          useAuthStore.getState().clearSession();
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          useAuthStore.getState().setLoading(false);
+        }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [authApi, setSession, clearSession, setLoading]);
+  }, [authApi]);
 
   return <AuthContext.Provider value>{children}</AuthContext.Provider>;
 };
 
-/** Convenience hook — no functional use yet, reserved for future auth-aware routing. */
 export const useAuthContext = () => useContext(AuthContext);
