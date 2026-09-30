@@ -6,6 +6,12 @@ export interface CollaborationLayerProps {
   map: L.Map | null;
 }
 
+function escapeHtml(str: string): string {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
 export const CollaborationLayer: React.FC<CollaborationLayerProps> = ({
   map,
 }) => {
@@ -37,7 +43,17 @@ export const CollaborationLayer: React.FC<CollaborationLayerProps> = ({
     const group = cursorsGroupRef.current;
     group.clearLayers();
 
+    const now = Date.now();
+    const CURSOR_TTL_MS = 30000; // Drop cursors older than 30s
+
     Object.values(remoteCursors).forEach((cursor) => {
+      if (cursor.updatedAt && now - cursor.updatedAt > CURSOR_TTL_MS) {
+        return;
+      }
+
+      const rawLabel = cursor.displayName || cursor.userId.substring(0, 6);
+      const safeLabel = escapeHtml(rawLabel);
+
       const cursorIcon = L.divIcon({
         className: 'remote-cursor-icon',
         html: `
@@ -58,7 +74,7 @@ export const CollaborationLayer: React.FC<CollaborationLayerProps> = ({
               white-space: nowrap;
               box-shadow: 0 1px 4px rgba(0,0,0,0.2);
             ">
-              ${cursor.displayName || cursor.userId.substring(0, 6)}
+              ${safeLabel}
             </div>
           </div>
         `,
@@ -95,6 +111,7 @@ export const CollaborationLayer: React.FC<CollaborationLayerProps> = ({
         color: '#8b5cf6',
         weight: 2,
         dashArray: '4, 4',
+        interactive: false,
       });
 
       group.addLayer(polyline);

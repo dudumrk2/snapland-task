@@ -23,6 +23,7 @@ export const AreaDetails: React.FC<AreaDetailsProps> = ({ area, onClose }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   const isEditingThis = editingAreaId === area.id;
 
@@ -35,14 +36,18 @@ export const AreaDetails: React.FC<AreaDetailsProps> = ({ area, onClose }) => {
   const handleSaveEdit = async () => {
     if (!editedCoordinates) return;
     setIsSaving(true);
+    setLocalError(null);
     try {
       await updateArea(area.id, {
         coordinates: editedCoordinates,
         version: area.version,
       });
       cancelEditing();
-    } catch {
-      // Conflict will trigger ConflictDialog
+    } catch (err: any) {
+      // Non-conflict errors are displayed locally
+      if (!err?.currentArea) {
+        setLocalError(err.message || 'Failed to save vertices');
+      }
     } finally {
       setIsSaving(false);
     }
@@ -51,9 +56,12 @@ export const AreaDetails: React.FC<AreaDetailsProps> = ({ area, onClose }) => {
   const handleDelete = async () => {
     if (!window.confirm(`Are you sure you want to delete "${area.name}"?`)) return;
     setIsDeleting(true);
+    setLocalError(null);
     try {
       await deleteArea(area.id);
       onClose();
+    } catch (err: any) {
+      setLocalError(err.message || 'Failed to delete area');
     } finally {
       setIsDeleting(false);
     }
@@ -94,6 +102,20 @@ export const AreaDetails: React.FC<AreaDetailsProps> = ({ area, onClose }) => {
           ×
         </button>
       </div>
+
+      {localError && (
+        <div
+          style={{
+            padding: '8px 10px',
+            backgroundColor: '#fee2e2',
+            color: '#dc2626',
+            borderRadius: '6px',
+            fontSize: '12px',
+          }}
+        >
+          {localError}
+        </div>
+      )}
 
       <div style={{ fontSize: '13px', color: '#4b5563', lineHeight: '1.6' }}>
         <div>
@@ -156,12 +178,12 @@ export const AreaDetails: React.FC<AreaDetailsProps> = ({ area, onClose }) => {
             style={{
               flex: 1,
               padding: '6px 12px',
-              backgroundColor: '#f59e0b',
+              backgroundColor: '#3b82f6',
               color: '#ffffff',
               border: 'none',
               borderRadius: '6px',
               fontSize: '12px',
-              fontWeight: 600,
+              fontWeight: 500,
               cursor: 'pointer',
             }}
           >
@@ -175,16 +197,15 @@ export const AreaDetails: React.FC<AreaDetailsProps> = ({ area, onClose }) => {
           disabled={isDeleting}
           style={{
             padding: '6px 12px',
-            backgroundColor: '#fee2e2',
-            color: '#dc2626',
+            backgroundColor: '#ef4444',
+            color: '#ffffff',
             border: 'none',
             borderRadius: '6px',
             fontSize: '12px',
-            fontWeight: 600,
             cursor: isDeleting ? 'wait' : 'pointer',
           }}
         >
-          Delete
+          {isDeleting ? 'Deleting...' : 'Delete'}
         </button>
       </div>
 
@@ -200,26 +221,27 @@ export const AreaDetails: React.FC<AreaDetailsProps> = ({ area, onClose }) => {
             fontSize: '12px',
             cursor: 'pointer',
             padding: 0,
-            textAlign: 'left',
+            textDecoration: 'underline',
           }}
         >
-          {showHistory ? 'Hide Version History ▲' : 'Show Version History ▼'}
+          {showHistory ? 'Hide Version History' : 'View Version History'}
         </button>
 
         {showHistory && (
           <div
             style={{
               marginTop: 8,
-              padding: 8,
-              backgroundColor: '#f9fafb',
-              borderRadius: 6,
-              fontSize: '11px',
-              maxHeight: 120,
+              maxHeight: '120px',
               overflowY: 'auto',
+              fontSize: '11px',
+              backgroundColor: '#f9fafb',
+              padding: 8,
+              borderRadius: 6,
+              border: '1px solid #e5e7eb',
             }}
           >
             {history.length === 0 ? (
-              <div style={{ color: '#9ca3af' }}>Loading history...</div>
+              <span style={{ color: '#9ca3af' }}>Loading history...</span>
             ) : (
               history.map((ver) => (
                 <div
@@ -227,10 +249,16 @@ export const AreaDetails: React.FC<AreaDetailsProps> = ({ area, onClose }) => {
                   style={{
                     padding: '4px 0',
                     borderBottom: '1px solid #f3f4f6',
+                    display: 'flex',
+                    justifyContent: 'space-between',
                   }}
                 >
-                  <strong>v{ver.versionNumber}</strong> by {ver.editedBy} (
-                  {ver.changeType}) - {formatArea(ver.areaKm2, false)}
+                  <span>
+                    v{ver.versionNumber} ({ver.changeType})
+                  </span>
+                  <span style={{ color: '#6b7280' }}>
+                    {new Date(ver.createdAt).toLocaleTimeString()}
+                  </span>
                 </div>
               ))
             )}

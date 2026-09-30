@@ -15,14 +15,14 @@ export interface RouterProps {
 /**
  * Minimal client-side Router.
  * Listens to popstate and maps pathname → page component.
- * Redirects unauthenticated users to /login and authenticated users away from /login.
+ * Redirects unauthenticated users to /login and authenticated users away from /login using replaceState to avoid history traps.
  */
 export const Router: React.FC = () => {
   const [pathname, setPathname] = useState(
     typeof window !== 'undefined' ? window.location.pathname : ROUTES.MAP
   );
 
-  const { isAuthenticated, isLoading } = useAuthStore();
+  const { isAuthenticated, isBootstrapping } = useAuthStore();
 
   // Sync pathname with history events
   useEffect(() => {
@@ -31,21 +31,21 @@ export const Router: React.FC = () => {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Redirect logic — runs after auth state is settled
+  // Redirect logic — runs after initial session bootstrap is settled
   useEffect(() => {
-    if (isLoading) return;
+    if (isBootstrapping) return;
 
     if (isAuthenticated && pathname === ROUTES.LOGIN) {
-      window.history.pushState({}, '', ROUTES.MAP);
+      window.history.replaceState({}, '', ROUTES.MAP);
       setPathname(ROUTES.MAP);
     } else if (!isAuthenticated && pathname !== ROUTES.LOGIN) {
-      window.history.pushState({}, '', ROUTES.LOGIN);
+      window.history.replaceState({}, '', ROUTES.LOGIN);
       setPathname(ROUTES.LOGIN);
     }
-  }, [isAuthenticated, isLoading, pathname]);
+  }, [isAuthenticated, isBootstrapping, pathname]);
 
-  // Show nothing while auth is initialising to avoid flash
-  if (isLoading) {
+  // Show nothing while initial bootstrap is in progress
+  if (isBootstrapping) {
     return (
       <div
         style={{

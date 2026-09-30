@@ -10,11 +10,13 @@ export interface AuthState {
   user: UserSession | null;
   accessToken: string | null;
   isAuthenticated: boolean;
-  isLoading: boolean;
+  isBootstrapping: boolean; // Only true during initial session restore
+  isActionLoading: boolean;  // True during login/register/logout actions
   error: string | null;
   setSession: (user: UserSession, accessToken: string) => void;
   clearSession: () => void;
-  setLoading: (isLoading: boolean) => void;
+  setBootstrapping: (isBootstrapping: boolean) => void;
+  setActionLoading: (isActionLoading: boolean) => void;
   setError: (error: string | null) => void;
 }
 
@@ -22,14 +24,16 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   accessToken: null,
   isAuthenticated: false,
-  isLoading: true,
+  isBootstrapping: true,
+  isActionLoading: false,
   error: null,
   setSession: (user, accessToken) =>
     set({
       user,
       accessToken,
       isAuthenticated: true,
-      isLoading: false,
+      isBootstrapping: false,
+      isActionLoading: false,
       error: null,
     }),
   clearSession: () =>
@@ -37,9 +41,11 @@ export const useAuthStore = create<AuthState>((set) => ({
       user: null,
       accessToken: null,
       isAuthenticated: false,
-      isLoading: false,
+      isBootstrapping: false,
+      isActionLoading: false,
       error: null,
     }),
-  setLoading: (isLoading) => set({ isLoading }),
-  setError: (error) => set({ error, isLoading: false }),
+  setBootstrapping: (isBootstrapping) => set({ isBootstrapping }),
+  setActionLoading: (isActionLoading) => set({ isActionLoading }),
+  setError: (error) => set({ error, isActionLoading: false }),
 }));

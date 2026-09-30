@@ -49,3 +49,5 @@ Thumbs.db
 # Scaffolds & Temp
 scaffold.py
 scaffold.ps1
+frontend/test-results/
+frontend/playwright-report/

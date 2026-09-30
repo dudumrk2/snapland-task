@@ -14,7 +14,7 @@ export const AreaPanel: React.FC<AreaPanelProps> = ({
   onStartDrawing,
   onCancelDrawing,
 }) => {
-  const { areas, selectedArea, selectedAreaId, selectArea } = useAreas();
+  const { areas, selectedArea, selectedAreaId, selectArea, error } = useAreas();
   const [searchQuery, setSearchQuery] = useState('');
 
   const filteredAreas = areas.filter((a) =>
@@ -64,6 +64,22 @@ export const AreaPanel: React.FC<AreaPanelProps> = ({
           {areas.length} {areas.length === 1 ? 'zone' : 'zones'}
         </span>
       </div>
+
+      {/* Render areasStore.error if present */}
+      {error && (
+        <div
+          style={{
+            padding: '8px 12px',
+            backgroundColor: '#fee2e2',
+            color: '#dc2626',
+            borderRadius: '6px',
+            fontSize: '12px',
+            marginBottom: 12,
+          }}
+        >
+          {error}
+        </div>
+      )}
 
       {/* Primary Action Button: Draw Polygon */}
       <div style={{ marginBottom: 12 }}>

@@ -16,9 +16,12 @@ export class LayerManager {
   private onFallbackCallback?: (reason: string) => void;
   private crossFadeDurationMs = 300;
   private isUsingFallback = false;
+  private activeInterval: any = null;
+  private fallbackTimer: any = null;
 
+  // Clean OpenStreetMap tile URL (no deprecated {s} subdomain)
   private static readonly OSM_URL =
-    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+    'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
   private static readonly GOVMAP_URL =
     (typeof import.meta !== 'undefined' &&
       import.meta.env &&
@@ -76,6 +79,10 @@ export class LayerManager {
     return this.currentLayerType;
   }
 
+  getCurrentTileLayer(): L.TileLayer | null {
+    return this.currentTileLayer;
+  }
+
   isFallbackActive(): boolean {
     return this.isUsingFallback;
   }
@@ -90,28 +97,37 @@ export class LayerManager {
 
     this.isTransitioning = true;
     const oldLayer = this.currentTileLayer;
-    const newLayer = this.createTileLayer(targetType);
+    const initialTargetLayer = this.createTileLayer(targetType);
 
-    // Step 1: Add new layer at opacity 0 to tilePane
-    newLayer.setOpacity(0);
-    newLayer.addTo(this.map);
-    this.pendingTileLayer = newLayer;
+    try {
+      // Step 1: Add initial target layer at opacity 0 to tilePane
+      initialTargetLayer.setOpacity(0);
+      initialTargetLayer.addTo(this.map);
+      this.pendingTileLayer = initialTargetLayer;
 
-    // Step 2: Await load or fallback
-    await this.prepareLayerReady(newLayer, targetType);
+      // Step 2: Await load or fallback (which might replace this.pendingTileLayer)
+      await this.prepareLayerReady(initialTargetLayer, targetType);
 
-    // Step 3: Cross-fade opacity
-    await this.crossFade(oldLayer, newLayer);
+      // Verify map wasn't destroyed while waiting
+      if (!this.map) return;
 
-    // Step 4: Clean up old layer
-    if (oldLayer && this.map.hasLayer(oldLayer)) {
-      this.map.removeLayer(oldLayer);
+      // Always cross-fade into the ACTUAL active target layer (initial or fallback)
+      const layerToFadeIn = this.pendingTileLayer || initialTargetLayer;
+      await this.crossFade(oldLayer, layerToFadeIn);
+
+      if (!this.map) return;
+
+      // Step 4: Clean up old layer
+      if (oldLayer && this.map.hasLayer(oldLayer)) {
+        this.map.removeLayer(oldLayer);
+      }
+
+      this.currentTileLayer = layerToFadeIn;
+      this.pendingTileLayer = null;
+      this.currentLayerType = targetType;
+    } finally {
+      this.isTransitioning = false;
     }
-
-    this.currentTileLayer = this.pendingTileLayer;
-    this.pendingTileLayer = null;
-    this.currentLayerType = targetType;
-    this.isTransitioning = false;
   }
 
   private createTileLayer(type: BaseLayerType, forceFallback = false): L.TileLayer {
@@ -148,7 +164,10 @@ export class LayerManager {
       const finish = () => {
         if (!resolved) {
           resolved = true;
-          clearTimeout(timer);
+          if (this.fallbackTimer) {
+            clearTimeout(this.fallbackTimer);
+            this.fallbackTimer = null;
+          }
           layer.off('load', onLoad);
           layer.off('tileerror', onError);
           resolve();
@@ -170,7 +189,7 @@ export class LayerManager {
       layer.on('tileerror', onError);
 
       // 5 second fallback timeout for satellite
-      const timer = setTimeout(() => {
+      this.fallbackTimer = setTimeout(() => {
         if (!resolved && targetType === 'satellite' && !this.isUsingFallback) {
           this.triggerFallback(layer).then(finish);
         } else {
@@ -204,19 +223,29 @@ export class LayerManager {
       const stepDuration = this.crossFadeDurationMs / steps;
       let step = 0;
 
-      const interval = setInterval(() => {
+      if (this.activeInterval) {
+        clearInterval(this.activeInterval);
+        this.activeInterval = null;
+      }
+
+      this.activeInterval = setInterval(() => {
         step++;
         const progress = step / steps;
 
-        newLayer.setOpacity(progress);
-        if (oldLayer) {
+        if (this.map && this.map.hasLayer(newLayer)) {
+          newLayer.setOpacity(progress);
+        }
+        if (oldLayer && this.map && this.map.hasLayer(oldLayer)) {
           oldLayer.setOpacity(1 - progress);
         }
 
         if (step >= steps) {
-          clearInterval(interval);
-          newLayer.setOpacity(1);
-          if (oldLayer) {
+          clearInterval(this.activeInterval);
+          this.activeInterval = null;
+          if (this.map && this.map.hasLayer(newLayer)) {
+            newLayer.setOpacity(1);
+          }
+          if (oldLayer && this.map && this.map.hasLayer(oldLayer)) {
             oldLayer.setOpacity(0);
           }
           resolve();
@@ -226,6 +255,14 @@ export class LayerManager {
   }
 
   destroy(): void {
+    if (this.activeInterval) {
+      clearInterval(this.activeInterval);
+      this.activeInterval = null;
+    }
+    if (this.fallbackTimer) {
+      clearTimeout(this.fallbackTimer);
+      this.fallbackTimer = null;
+    }
     if (this.map) {
       if (this.currentTileLayer && this.map.hasLayer(this.currentTileLayer)) {
         this.map.removeLayer(this.currentTileLayer);

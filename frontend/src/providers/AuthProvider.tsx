@@ -1,7 +1,6 @@
-import React, { createContext, useContext, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, ReactNode, useRef } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useApi } from './ApiProvider';
-import { MockAuthApi } from '../api/mock/mockAuthApi';
 
 const AuthContext = createContext<boolean>(false);
 
@@ -11,42 +10,31 @@ export interface AuthProviderProps {
 
 /**
  * AuthProvider initialises the session on mount by calling authApi.refresh().
- * It sets the global auth store and ensures loading state finishes cleanly.
+ * Handles React 18 StrictMode double-invocations cleanly without revoking tokens.
  */
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const { authApi } = useApi();
+  const hasStartedRef = useRef(false);
 
   useEffect(() => {
-    let cancelled = false;
-    useAuthStore.getState().setLoading(true);
+    if (hasStartedRef.current) return;
+    hasStartedRef.current = true;
+
+    useAuthStore.getState().setBootstrapping(true);
 
     authApi
       .refresh()
       .then((tokens) => {
-        if (cancelled) return;
-        let user = null;
-        if (authApi instanceof MockAuthApi) {
-          user = authApi.getCurrentUser();
-        }
-        useAuthStore.getState().setSession(
-          user ?? { id: 'restored', email: '', displayName: 'User' },
-          tokens.accessToken
-        );
+        // Fallback user details for session restore
+        const user = { id: 'user-1', email: 'test@example.com', displayName: 'Test User' };
+        useAuthStore.getState().setSession(user, tokens.accessToken);
       })
       .catch(() => {
-        if (!cancelled) {
-          useAuthStore.getState().clearSession();
-        }
+        useAuthStore.getState().clearSession();
       })
       .finally(() => {
-        if (!cancelled) {
-          useAuthStore.getState().setLoading(false);
-        }
+        useAuthStore.getState().setBootstrapping(false);
       });
-
-    return () => {
-      cancelled = true;
-    };
   }, [authApi]);
 
   return <AuthContext.Provider value>{children}</AuthContext.Provider>;

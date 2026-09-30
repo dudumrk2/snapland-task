@@ -77,5 +77,10 @@ describe('LayerManager', () => {
     await switchPromise;
     expect(layerManager.isFallbackActive()).toBe(true);
     expect(fallbackSpy).toHaveBeenCalled();
+
+    const currentLayer = layerManager.getCurrentTileLayer();
+    expect(currentLayer).toBeDefined();
+    // @ts-expect-error accessing leaflet options for testing
+    expect(currentLayer?.options?.opacity ?? 1).toBe(1);
   });
 });

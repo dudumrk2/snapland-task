@@ -44,7 +44,8 @@ describe('useWebSocket', () => {
       result.current.sendCursorMove({ lat: 32.02, lng: 34.82 });
     });
 
-    // Does not throw and handles throttling
-    expect(result.current.connectionState).toBe('disconnected');
+    const cursorMessages = mockWsService.sentMessages.filter((m) => m.type === 'CURSOR_MOVE');
+    expect(cursorMessages).toHaveLength(1);
+    expect(cursorMessages[0].payload).toEqual({ lat: 32.0, lng: 34.8 });
   });
 });

@@ -57,9 +57,16 @@ export const useCollaborationStore = create<CollaborationState>((set) => ({
     set((state) => {
       const nextCursors = { ...state.remoteCursors };
       delete nextCursors[userId];
+      const nextShapes = { ...state.remoteShapes };
+      Object.keys(nextShapes).forEach((shapeId) => {
+        if (nextShapes[shapeId].userId === userId) {
+          delete nextShapes[shapeId];
+        }
+      });
       return {
         presenceUsers: state.presenceUsers.filter((u) => u.userId !== userId),
         remoteCursors: nextCursors,
+        remoteShapes: nextShapes,
       };
     }),
   updateRemoteCursor: (cursor) => {
@@ -104,11 +111,32 @@ export const useCollaborationStore = create<CollaborationState>((set) => ({
 
       // update
       const existing = state.remoteShapes[shapeId];
-      if (!existing) return state;
+      if (!existing) {
+        // If start was missed, recover by adopting the incoming points
+        return {
+          remoteShapes: {
+            ...state.remoteShapes,
+            [shapeId]: {
+              userId,
+              shapeId,
+              points: append || [],
+            },
+          },
+        };
+      }
 
-      // Delta check: verify fromIndex matches local points length
+      // Delta check: verify fromIndex matches local points length or resync
       if (existing.points.length !== fromIndex) {
-        return state; // Stale delta dropped as per HLD §9.1
+        // If delta gap detected, resync by appending or replacing to avoid frozen ghost shapes
+        if (fromIndex === 0) {
+          return {
+            remoteShapes: {
+              ...state.remoteShapes,
+              [shapeId]: { ...existing, points: append || [] },
+            },
+          };
+        }
+        return state;
       }
 
       return {

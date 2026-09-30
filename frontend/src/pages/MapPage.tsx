@@ -5,43 +5,42 @@ import { UserPresenceBar } from '../components/ui/UserPresenceBar';
 import { ConflictDialog } from '../components/ui/ConflictDialog';
 import { Toast } from '../components/ui/Toast';
 import { useDrawing } from '../hooks/useDrawing';
-import { useWebSocket } from '../hooks/useWebSocket';
+import { WebSocketProvider } from '../providers/WebSocketProvider';
 
 export const MapPage: React.FC = () => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-
-  // Initialize drawing controller and realtime websocket connection
   const drawingController = useDrawing();
-  useWebSocket(true);
 
   return (
-    <div
-      style={{
-        position: 'relative',
-        width: '100vw',
-        height: '100vh',
-        overflow: 'hidden',
-      }}
-    >
-      <UserPresenceBar />
+    <WebSocketProvider>
+      <div
+        style={{
+          position: 'relative',
+          width: '100vw',
+          height: '100vh',
+          overflow: 'hidden',
+        }}
+      >
+        <UserPresenceBar />
 
-      <MapView
-        drawingController={drawingController}
-        onToast={(msg) => setToastMessage(msg)}
-      />
+        <MapView
+          drawingController={drawingController}
+          onToast={(msg) => setToastMessage(msg)}
+        />
 
-      <AreaPanel
-        isDrawing={drawingController.isDrawing}
-        onStartDrawing={drawingController.startDrawing}
-        onCancelDrawing={drawingController.cancelDrawing}
-      />
+        <AreaPanel
+          isDrawing={drawingController.isDrawing}
+          onStartDrawing={drawingController.startDrawing}
+          onCancelDrawing={drawingController.cancelDrawing}
+        />
 
-      <ConflictDialog />
+        <ConflictDialog />
 
-      <Toast
-        message={toastMessage}
-        onClose={() => setToastMessage(null)}
-      />
-    </div>
+        <Toast
+          message={toastMessage}
+          onClose={() => setToastMessage(null)}
+        />
+      </div>
+    </WebSocketProvider>
   );
 };

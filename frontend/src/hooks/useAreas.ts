@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import type {
   BoundingBox,
   Coordinate,
@@ -34,16 +34,34 @@ export function useAreas() {
   } = useAreasStore();
 
   const selectedArea = areas.find((a) => a.id === selectedAreaId) || null;
+  const fetchRequestIdRef = useRef<number>(0);
 
   const fetchAreasInBounds = useCallback(
     async (bounds: BoundingBox, zoom: number) => {
+      const requestId = ++fetchRequestIdRef.current;
       setLoading(true);
       setError(null);
       try {
         const page = await areaApi.getAreasInBounds(bounds, zoom);
-        setAreas(page.areas);
+        // Ignore stale, out-of-order responses
+        if (requestId !== fetchRequestIdRef.current) return;
+
+        // Preserve area currently being edited so it doesn't vanish on pan
+        const currentEditingId = useAreasStore.getState().editingAreaId;
+        const currentAreas = useAreasStore.getState().areas;
+        const editingArea = currentEditingId
+          ? currentAreas.find((a) => a.id === currentEditingId)
+          : null;
+
+        if (editingArea && !page.areas.some((a) => a.id === editingArea.id)) {
+          setAreas([editingArea, ...page.areas]);
+        } else {
+          setAreas(page.areas);
+        }
       } catch (err: any) {
-        setError(err.message || 'Failed to fetch areas');
+        if (requestId === fetchRequestIdRef.current) {
+          setError(err.message || 'Failed to fetch areas');
+        }
       }
     },
     [areaApi, setAreas, setLoading, setError]
@@ -137,26 +155,38 @@ export function useAreas() {
   const resolveForceOverwrite = useCallback(async () => {
     if (!conflict) return;
     const { localArea, currentArea } = conflict;
-    await updateArea(localArea.id, {
-      name: localArea.name,
-      coordinates: localArea.coordinates,
-      version: currentArea.version,
-    });
-  }, [conflict, updateArea]);
+    try {
+      await updateArea(localArea.id, {
+        name: localArea.name,
+        coordinates: localArea.coordinates,
+        version: currentArea.version,
+      });
+      setConflict(null);
+      cancelEditing();
+    } catch (err: any) {
+      setError(err.message || 'Force overwrite failed');
+      throw err;
+    }
+  }, [conflict, updateArea, setConflict, cancelEditing, setError]);
 
   // 3. Save as New: POST local geometry as a new area
   const resolveSaveAsNew = useCallback(
     async (newName?: string) => {
       if (!conflict) return;
       const { localArea } = conflict;
-      await createArea(
-        newName || `${localArea.name} (Copy)`,
-        localArea.coordinates
-      );
-      setConflict(null);
-      cancelEditing();
+      try {
+        await createArea(
+          newName || `${localArea.name} (Copy)`,
+          localArea.coordinates
+        );
+        setConflict(null);
+        cancelEditing();
+      } catch (err: any) {
+        setError(err.message || 'Save as new failed');
+        throw err;
+      }
     },
-    [conflict, createArea, setConflict, cancelEditing]
+    [conflict, createArea, setConflict, cancelEditing, setError]
   );
 
   return {

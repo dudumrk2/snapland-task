@@ -22,6 +22,8 @@ export class MockWebSocketService implements IWebSocketService {
   private stateChangeHandlers = new Set<(state: ConnectionState) => void>();
   private _lastEventId: string | null = null;
   private mockIntervalTimer: any = null;
+  private connectTimer: any = null;
+  public sentMessages: WsMessage<any>[] = [];
 
   get connectionState(): ConnectionState {
     return this.state;
@@ -39,7 +41,9 @@ export class MockWebSocketService implements IWebSocketService {
     // Fetch ticket and simulate connection delay
     ticketProvider()
       .then(() => {
-        setTimeout(() => {
+        if (this.state !== 'connecting') return;
+        this.connectTimer = setTimeout(() => {
+          if (this.state !== 'connecting') return;
           this.updateState('connected');
           this.sendPresenceSnapshot();
           this.startMockPeerSimulation();
@@ -51,6 +55,10 @@ export class MockWebSocketService implements IWebSocketService {
   }
 
   disconnect(): void {
+    if (this.connectTimer) {
+      clearTimeout(this.connectTimer);
+      this.connectTimer = null;
+    }
     if (this.mockIntervalTimer) {
       clearInterval(this.mockIntervalTimer);
       this.mockIntervalTimer = null;
@@ -59,6 +67,7 @@ export class MockWebSocketService implements IWebSocketService {
   }
 
   send<T extends ClientMessageType>(message: WsMessage<T>): void {
+    this.sentMessages.push(message);
     if (this.state !== 'connected') return;
 
     // Handle client messages locally in mock
@@ -105,7 +114,7 @@ export class MockWebSocketService implements IWebSocketService {
     this.stateChangeHandlers.forEach((handler) => handler(newState));
   }
 
-  private dispatch<T extends ServerMessageType>(
+  public dispatch<T extends ServerMessageType>(
     type: T,
     payload: WsPayloadMap[T],
     eventId?: string
@@ -130,7 +139,7 @@ export class MockWebSocketService implements IWebSocketService {
       if (this.state !== 'connected') return;
       tick++;
 
-      // Every few seconds, simulate gentle peer cursor movement around Tel Aviv
+      // Every 2 seconds, simulate peer cursor movement around Tel Aviv
       const angle = (tick * 0.1) % (2 * Math.PI);
       const latOffset = Math.sin(angle) * 0.005;
       const lngOffset = Math.cos(angle) * 0.005;
@@ -140,6 +149,21 @@ export class MockWebSocketService implements IWebSocketService {
         lat: 32.0853 + latOffset,
         lng: 34.7818 + lngOffset,
       });
+
+      // Every 5 seconds (every ~2-3 ticks), simulate peer User B drawing update
+      if (tick % 3 === 0) {
+        this.dispatch('REMOTE_DRAW', {
+          userId: 'peer-user-2',
+          shapeId: 'peer-shape-active',
+          phase: 'update',
+          seq: tick,
+          fromIndex: 0,
+          append: [
+            { lat: 32.08 + latOffset, lng: 34.78 + lngOffset },
+            { lat: 32.085 + latOffset, lng: 34.785 + lngOffset },
+          ],
+        });
+      }
     }, 2000);
   }
 }

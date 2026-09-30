@@ -93,7 +93,7 @@ describe('useDrawing', () => {
       result.current.finishDrawing();
     });
 
-    expect(result.current.validationError).toBeDefined();
+    expect(result.current.validationError).not.toBeNull();
     expect(result.current.isSaveModalOpen).toBe(false);
   });
 });

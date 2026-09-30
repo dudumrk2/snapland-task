@@ -10,7 +10,7 @@ import { IAreaApi, ConflictError } from '../interfaces/IAreaApi';
 import { calculatePolygonAreaKm2 } from '../../utils/areaCalculation';
 import { isPointInBounds } from '../../utils/geoUtils';
 
-const INITIAL_AREAS: Area[] = [
+export const INITIAL_AREAS: Area[] = [
   {
     id: 'area-1',
     name: 'Tel Aviv Port District',
@@ -50,7 +50,7 @@ export class MockAreaApi implements IAreaApi {
   private history: Map<string, AreaVersion[]> = new Map();
   private simulatedLatencyMs = 60;
 
-  constructor(initialAreas: Area[] = INITIAL_AREAS) {
+  constructor(initialAreas: Area[] = []) {
     initialAreas.forEach((area) => {
       this.areas.set(area.id, { ...area });
       this.history.set(area.id, [

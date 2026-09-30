@@ -14,7 +14,7 @@ export const VertexEditor: React.FC<VertexEditorProps> = ({ map }) => {
   const layerGroupRef = useRef<L.LayerGroup | null>(null);
   const previewPolygonRef = useRef<L.Polygon | null>(null);
 
-  // Initialize LayerGroup
+  // Initialize LayerGroup and cleanup everything on unmount
   useEffect(() => {
     if (!map) return;
 
@@ -23,6 +23,10 @@ export const VertexEditor: React.FC<VertexEditorProps> = ({ map }) => {
     layerGroupRef.current = group;
 
     return () => {
+      if (previewPolygonRef.current && map.hasLayer(previewPolygonRef.current)) {
+        map.removeLayer(previewPolygonRef.current);
+        previewPolygonRef.current = null;
+      }
       if (map && map.hasLayer(group)) {
         map.removeLayer(group);
       }
@@ -58,6 +62,7 @@ export const VertexEditor: React.FC<VertexEditorProps> = ({ map }) => {
         dashArray: '4, 4',
         fillColor: '#fbbf24',
         fillOpacity: 0.25,
+        interactive: false,
       }).addTo(map);
     } else {
       previewPolygonRef.current.setLatLngs(latLngs);

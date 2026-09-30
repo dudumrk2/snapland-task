@@ -24,11 +24,11 @@ export const DrawingLayer: React.FC<DrawingLayerProps> = ({
     finishDrawing,
     cancelDrawing,
     saveDrawing,
-    setIsSaveModalOpen,
   } = drawingController;
 
   const [areaName, setAreaName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const activeLineRef = useRef<L.Polyline | null>(null);
   const closingLineRef = useRef<L.Polyline | null>(null);
@@ -116,6 +116,7 @@ export const DrawingLayer: React.FC<DrawingLayerProps> = ({
         pane: 'drawingPane',
         color: '#2563eb',
         weight: 3,
+        interactive: false,
       }).addTo(map);
     } else {
       activeLineRef.current.setLatLngs(clickedLatLngs);
@@ -135,6 +136,7 @@ export const DrawingLayer: React.FC<DrawingLayerProps> = ({
           color: '#3b82f6',
           weight: 2,
           dashArray: '5, 5',
+          interactive: false,
         }).addTo(map);
       } else {
         closingLineRef.current.setLatLngs(closingLatLngs);
@@ -208,9 +210,12 @@ export const DrawingLayer: React.FC<DrawingLayerProps> = ({
     if (!areaName.trim() || isSaving) return;
 
     setIsSaving(true);
+    setSaveError(null);
     try {
       await saveDrawing(areaName.trim());
       setAreaName('');
+    } catch (err: any) {
+      setSaveError(err.message || 'Failed to save area');
     } finally {
       setIsSaving(false);
     }
@@ -298,6 +303,20 @@ export const DrawingLayer: React.FC<DrawingLayerProps> = ({
             <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', color: '#111827' }}>
               Save Drawn Polygon
             </h3>
+            {saveError && (
+              <div
+                style={{
+                  padding: '8px 12px',
+                  backgroundColor: '#fee2e2',
+                  color: '#dc2626',
+                  borderRadius: '6px',
+                  fontSize: '13px',
+                  marginBottom: 14,
+                }}
+              >
+                {saveError}
+              </div>
+            )}
             <form onSubmit={handleSaveSubmit}>
               <div style={{ marginBottom: 16 }}>
                 <label
@@ -341,7 +360,7 @@ export const DrawingLayer: React.FC<DrawingLayerProps> = ({
               >
                 <button
                   type="button"
-                  onClick={() => setIsSaveModalOpen(false)}
+                  onClick={cancelDrawing}
                   disabled={isSaving}
                   style={{
                     padding: '8px 16px',

@@ -52,7 +52,7 @@ export const useAreasStore = create<AreasState>((set) => ({
       const updated = exists
         ? state.areas.map((a) => (a.id === area.id ? area : a))
         : [area, ...state.areas];
-      return { areas: updated };
+      return { areas: updated, isLoading: false, error: null };
     }),
   updateArea: (area) =>
     set((state) => {
@@ -62,6 +62,8 @@ export const useAreasStore = create<AreasState>((set) => ({
         editingAreaId: state.editingAreaId === area.id ? null : state.editingAreaId,
         editedCoordinates:
           state.editingAreaId === area.id ? null : state.editedCoordinates,
+        isLoading: false,
+        error: null,
       };
     }),
   deleteArea: (id) =>
@@ -71,6 +73,8 @@ export const useAreasStore = create<AreasState>((set) => ({
       editingAreaId: state.editingAreaId === id ? null : state.editingAreaId,
       editedCoordinates:
         state.editingAreaId === id ? null : state.editedCoordinates,
+      isLoading: false,
+      error: null,
     })),
   selectArea: (id) =>
     set({
@@ -95,7 +99,7 @@ export const useAreasStore = create<AreasState>((set) => ({
       editedCoordinates: null,
     }),
   setConflict: (conflict) => set({ conflict }),
-  setHistory: (history) => set({ history }),
+  setHistory: (history) => set({ history, isLoading: false, error: null }),
   setLoading: (isLoading) => set({ isLoading }),
   setError: (error) => set({ error, isLoading: false }),
 }));

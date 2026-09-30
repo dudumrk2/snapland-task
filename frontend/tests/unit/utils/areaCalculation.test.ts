@@ -16,8 +16,8 @@ describe('areaCalculation', () => {
       ).toBe(0);
     });
 
-    it('calculates area for a polygon in Israel', () => {
-      // ~10 km x ~10 km square near Tel Aviv
+    it('calculates area for a polygon in Israel within 1% of reference value', () => {
+      // ~10 km x ~10 km square near Tel Aviv (~94.2 km² reference area)
       const coords = [
         { lat: 32.0, lng: 34.8 },
         { lat: 32.0, lng: 34.9 },
@@ -25,8 +25,10 @@ describe('areaCalculation', () => {
         { lat: 32.09, lng: 34.8 },
       ];
       const area = calculatePolygonAreaKm2(coords);
-      expect(area).toBeGreaterThan(50);
-      expect(area).toBeLessThan(150);
+      // Expected geodesic area is ~94.23 km²
+      expect(area).toBeGreaterThan(93.0);
+      expect(area).toBeLessThan(95.5);
+      expect(Math.abs(area - 94.23) / 94.23).toBeLessThan(0.01);
     });
   });
 

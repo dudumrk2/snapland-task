@@ -8,6 +8,16 @@ export interface UseMapBoundsOptions {
   debounceMs?: number;
 }
 
+function areBoundsEqual(a: BoundingBox | null, b: BoundingBox | null): boolean {
+  if (!a || !b) return a === b;
+  return (
+    Math.abs(a.minLng - b.minLng) < 1e-6 &&
+    Math.abs(a.minLat - b.minLat) < 1e-6 &&
+    Math.abs(a.maxLng - b.maxLng) < 1e-6 &&
+    Math.abs(a.maxLat - b.maxLat) < 1e-6
+  );
+}
+
 export function useMapBounds(
   map: L.Map | null,
   options?: UseMapBoundsOptions
@@ -16,6 +26,10 @@ export function useMapBounds(
   const [zoom, setZoom] = useState<number>(13);
   const timerRef = useRef<any>(null);
 
+  // Store options in a ref so inline option objects don't trigger re-renders or reset timers
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+
   const updateBounds = useCallback(() => {
     if (!map) return;
 
@@ -23,21 +37,22 @@ export function useMapBounds(
     const currentZoom = map.getZoom();
     const box = ProjectionUtils.latLngBoundsToBoundingBox(leafletBounds);
 
-    setBounds(box);
-    setZoom(currentZoom);
+    setBounds((prev) => (areBoundsEqual(prev, box) ? prev : box));
+    setZoom((prev) => (prev === currentZoom ? prev : currentZoom));
 
-    if (options?.onBoundsChange) {
+    const currentOptions = optionsRef.current;
+    if (currentOptions?.onBoundsChange) {
       if (timerRef.current) clearTimeout(timerRef.current);
-      const delay = options.debounceMs ?? 300;
+      const delay = currentOptions.debounceMs ?? 300;
       if (delay > 0) {
         timerRef.current = setTimeout(() => {
-          options.onBoundsChange?.(box, currentZoom);
+          currentOptions.onBoundsChange?.(box, currentZoom);
         }, delay);
       } else {
-        options.onBoundsChange(box, currentZoom);
+        currentOptions.onBoundsChange(box, currentZoom);
       }
     }
-  }, [map, options]);
+  }, [map]);
 
   useEffect(() => {
     if (!map) return;

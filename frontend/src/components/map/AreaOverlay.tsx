@@ -5,11 +5,20 @@ import { formatArea } from '../../utils/areaCalculation';
 
 export interface AreaOverlayProps {
   map: L.Map | null;
+  isDrawing?: boolean;
 }
 
-export const AreaOverlay: React.FC<AreaOverlayProps> = ({ map }) => {
+function escapeHtml(str: string): string {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+export const AreaOverlay: React.FC<AreaOverlayProps> = ({ map, isDrawing = false }) => {
   const { areas, selectedAreaId, selectArea } = useAreasStore();
   const polygonsGroupRef = useRef<L.LayerGroup | null>(null);
+  const isDrawingRef = useRef(isDrawing);
+  isDrawingRef.current = isDrawing;
 
   // Initialize LayerGroup
   useEffect(() => {
@@ -50,8 +59,12 @@ export const AreaOverlay: React.FC<AreaOverlayProps> = ({ map }) => {
         fillOpacity: isSelected ? 0.35 : 0.2,
       });
 
+      // Escape area.name to prevent stored XSS vulnerabilities
+      const safeName = escapeHtml(area.name);
+      const safeArea = escapeHtml(formatArea(area.areaKm2, false));
+
       polygon.bindTooltip(
-        `<strong>${area.name}</strong><br/>${formatArea(area.areaKm2, false)}`,
+        `<strong>${safeName}</strong><br/>${safeArea}`,
         {
           pane: 'polygonsPane',
           direction: 'center',
@@ -60,6 +73,10 @@ export const AreaOverlay: React.FC<AreaOverlayProps> = ({ map }) => {
       );
 
       polygon.on('click', (e: L.LeafletMouseEvent) => {
+        // While drawing, let map receive the click event instead of selecting area
+        if (isDrawingRef.current) {
+          return;
+        }
         L.DomEvent.stopPropagation(e);
         selectArea(area.id);
       });
