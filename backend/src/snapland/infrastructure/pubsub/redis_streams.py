@@ -1,11 +1,11 @@
 import asyncio
+import re
 import time
-from typing import Any, AsyncIterator, Optional
+from typing import Any, AsyncIterator
 
 from pydantic import TypeAdapter
 from redis.asyncio import Redis
 
-from snapland.config import settings
 from snapland.core.domain.events import AreaCreated, AreaDeleted, AreaUpdated, DomainEvent
 from snapland.core.domain.ws_messages import (
     AreaDeletedMessage,
@@ -20,6 +20,14 @@ from snapland.core.interfaces.realtime import CatchUp, IEventStream
 from snapland.core.interfaces.services import IEventPublisher
 
 server_message_adapter: TypeAdapter[ServerMessage] = TypeAdapter(ServerMessage)
+
+
+def parse_stream_id(id_str: str) -> tuple[int, int]:
+    try:
+        parts = id_str.split("-")
+        return (int(parts[0]), int(parts[1]))
+    except Exception:
+        return (0, 0)
 
 
 class RedisEventStream(IEventStream, IEventPublisher):
@@ -53,34 +61,34 @@ class RedisEventStream(IEventStream, IEventPublisher):
 
     async def append(self, message: ServerMessage) -> str:
         data = server_message_adapter.dump_json(message).decode("utf-8")
-        msg_id = await self.redis.xadd(self.stream_key, {"payload": data}, maxlen=10000, approximate=True)
-        msg_id_str = msg_id.decode("utf-8") if isinstance(msg_id, bytes) else str(msg_id)
-
-        # HLD §9.2 Stream retention: XTRIM MINID ~ (now - 5 minutes)
         min_timestamp = int((time.time() - 300) * 1000)
-        try:
-            await self.redis.xtrim(self.stream_key, minid=f"{min_timestamp}-0", approximate=True)
-        except Exception:
-            pass
+        msg_id = await self.redis.xadd(
+            self.stream_key,
+            {"payload": data},
+            minid=f"{min_timestamp}-0",
+            approximate=True
+        )
+        return msg_id.decode("utf-8") if isinstance(msg_id, bytes) else str(msg_id)
 
-        return msg_id_str
+    async def read_since(self, last_id: str, limit: int = 150) -> CatchUp:
+        # Validate last_id format
+        if not last_id or not re.match(r"^\d+-\d+$", last_id):
+            return CatchUp(events=[], resync_required=True)
 
-    async def read_since(self, last_id: str, limit: int = 500) -> CatchUp:
         try:
             stream_info = await self.redis.xinfo_stream(self.stream_key)
         except Exception:
             stream_info = None
 
-        resync_required = False
-        if stream_info and "first-entry" in stream_info and stream_info["first-entry"]:
+        if last_id != "0-0" and stream_info and "first-entry" in stream_info and stream_info["first-entry"]:
             first_entry_id = stream_info["first-entry"][0]
             if isinstance(first_entry_id, bytes):
                 first_entry_id = first_entry_id.decode("utf-8")
 
-            if last_id != "0-0" and last_id < first_entry_id:
-                resync_required = True
+            if parse_stream_id(last_id) < parse_stream_id(first_entry_id):
+                return CatchUp(events=[], resync_required=True)
 
-        raw_res: Any = await self.redis.xread({self.stream_key: last_id}, count=limit)
+        raw_res: Any = await self.redis.xread({self.stream_key: last_id}, count=limit + 1)
         events: list[tuple[str, ServerMessage]] = []
         if raw_res and isinstance(raw_res, list):
             for stream_item in raw_res:
@@ -102,26 +110,20 @@ class RedisEventStream(IEventStream, IEventPublisher):
                         except Exception:
                             pass
 
-        return CatchUp(events=events, resync_required=resync_required)
+        if len(events) > limit:
+            return CatchUp(events=[], resync_required=True)
 
-    async def follow(self, start_id: Optional[str] = None) -> AsyncIterator[tuple[str, ServerMessage]]:
-        offset_key = f"{self.stream_key}:last_id:{settings.INSTANCE_ID}"
-        if start_id:
-            last_id = start_id
-        else:
-            try:
-                saved = await self.redis.get(offset_key)
-                if saved:
-                    last_id = saved.decode("utf-8") if isinstance(saved, bytes) else str(saved)
-                else:
-                    last_id = "$"
-            except Exception:
-                last_id = "$"
+        return CatchUp(events=events, resync_required=False)
 
+    async def follow(self) -> AsyncIterator[tuple[str, ServerMessage]]:
+        last_id = "$"
         while True:
             try:
                 raw_res: Any = await self.redis.xread({self.stream_key: last_id}, block=1000)
-                if raw_res and isinstance(raw_res, list):
+                if not raw_res:
+                    await asyncio.sleep(0.05)
+                    continue
+                if isinstance(raw_res, list):
                     for stream_item in raw_res:
                         messages = stream_item[1] if isinstance(stream_item, (list, tuple)) and len(stream_item) > 1 else []
                         for msg_entry in messages:
@@ -132,10 +134,6 @@ class RedisEventStream(IEventStream, IEventPublisher):
                                 continue
                             msg_id_str = msg_id.decode("utf-8") if isinstance(msg_id, bytes) else str(msg_id)
                             last_id = msg_id_str
-                            try:
-                                await self.redis.set(offset_key, last_id)
-                            except Exception:
-                                pass
                             payload = fields.get(b"payload") or fields.get("payload")
                             if payload:
                                 try:
@@ -146,6 +144,6 @@ class RedisEventStream(IEventStream, IEventPublisher):
                                 except Exception:
                                     pass
             except asyncio.CancelledError:
-                break
+                raise
             except Exception:
                 await asyncio.sleep(0.5)

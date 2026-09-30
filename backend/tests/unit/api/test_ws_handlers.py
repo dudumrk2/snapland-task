@@ -27,6 +27,8 @@ def mock_app_state():
     state.ephemeral_bus.publish = AsyncMock()
     state.area_service = MagicMock()
     state.area_service.create_area = AsyncMock()
+    state.ws_manager = MagicMock()
+    state.ws_manager.broadcast_ephemeral = AsyncMock()
     return state
 
 

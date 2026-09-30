@@ -7,8 +7,16 @@ from snapland.core.domain.area import Area, Coordinate
 
 
 class PresenceUser(BaseModel):
-    user_id: UUID
-    display_name: str
+    userId: UUID
+    displayName: str
+
+    @property
+    def user_id(self) -> UUID:
+        return self.userId
+
+    @property
+    def display_name(self) -> str:
+        return self.displayName
 
 # ---------------------------------------------------------
 # Client -> Server Messages

@@ -14,11 +14,24 @@ from snapland.infrastructure.pubsub.redis_pubsub import RedisEphemeralBus
 from snapland.infrastructure.pubsub.redis_streams import RedisEventStream
 
 
+class ThreadSafeFakeRedisProxy:
+    def __init__(self, server: fakeredis.FakeServer):
+        self._server = server
+
+    def __getattr__(self, name: str):
+        r = fakeredis.aioredis.FakeRedis(server=self._server, decode_responses=True)
+        return getattr(r, name)
+
+
 @pytest.fixture
 def ws_client():
     server = fakeredis.FakeServer()
-    async_redis = fakeredis.aioredis.FakeRedis(server=server, decode_responses=True)
+    async_redis = ThreadSafeFakeRedisProxy(server)
     sync_redis = fakeredis.FakeRedis(server=server, decode_responses=True)
+
+    from snapland.config import settings
+    orig_origins = settings.WS_ALLOWED_ORIGINS
+    settings.WS_ALLOWED_ORIGINS = "*"
 
     original_state = app.state.__dict__.copy()
     try:
@@ -40,6 +53,7 @@ def ws_client():
         with TestClient(app) as client:
             yield client, sync_redis
     finally:
+        settings.WS_ALLOWED_ORIGINS = orig_origins
         app.state.__dict__.clear()
         app.state.__dict__.update(original_state)
 
@@ -119,3 +133,110 @@ def test_ws_draw_commit_calls_area_service(ws_client):
     assert call_args[0].name == "Test Zone"
     assert call_args[0].shape_id == "poly-abc"
     assert str(call_args[1]) == user_id
+
+
+def test_ws_ticket_cannot_be_reused(ws_client):
+    client, sync_redis = ws_client
+    user_id = str(uuid.uuid4())
+    ticket = "single-use-ticket-xyz"
+    sync_redis.set(f"ws_ticket:{ticket}", user_id, ex=30)
+
+    # First use succeeds
+    with client.websocket_connect(f"/ws?ticket={ticket}") as ws:
+        _ = ws.receive_text()
+
+    # Second use fails with 4001
+    with pytest.raises(WebSocketDisconnect) as exc:
+        with client.websocket_connect(f"/ws?ticket={ticket}"):
+            pass
+    assert exc.value.code == 4001
+
+
+def test_ws_two_clients_collaboration(ws_client):
+    client, sync_redis = ws_client
+    user_a = str(uuid.uuid4())
+    user_b = str(uuid.uuid4())
+    ticket_a = "ticket-user-a"
+    ticket_b = "ticket-user-b"
+
+    sync_redis.set(f"ws_ticket:{ticket_a}", user_a, ex=30)
+    sync_redis.set(f"ws_ticket:{ticket_b}", user_b, ex=30)
+
+    with client.websocket_connect(f"/ws?ticket={ticket_a}") as ws_a:
+        # A receives initial snapshot
+        frame_a = json.loads(ws_a.receive_text())
+        assert frame_a[0]["type"] == "PRESENCE_SNAPSHOT"
+
+        with client.websocket_connect(f"/ws?ticket={ticket_b}") as ws_b:
+            # B receives initial snapshot
+            frame_b = json.loads(ws_b.receive_text())
+            assert frame_b[0]["type"] == "PRESENCE_SNAPSHOT"
+
+            # A receives USER_JOINED for B
+            frame_joined = json.loads(ws_a.receive_text())
+            assert any(m["type"] == "USER_JOINED" and m["payload"]["user"]["userId"] == user_b for m in frame_joined)
+
+            # User A moves cursor -> User B must receive CURSOR_MOVE
+            ws_a.send_text(json.dumps({
+                "type": "CURSOR_MOVE",
+                "payload": {"lat": 32.123, "lng": 34.456}
+            }))
+
+            frame_cursor = json.loads(ws_b.receive_text())
+            cursor_msg = next((m for m in frame_cursor if m["type"] == "CURSOR_MOVE"), None)
+            assert cursor_msg is not None
+            assert cursor_msg["payload"]["userId"] == user_a
+            assert cursor_msg["payload"]["lat"] == 32.123
+            assert cursor_msg["payload"]["lng"] == 34.456
+
+            # User A sends DRAW_START -> User B must receive REMOTE_DRAW
+            ws_a.send_text(json.dumps({
+                "type": "DRAW_START",
+                "payload": {
+                    "shapeId": "poly-collab-1",
+                    "append": [{"lat": 32.1, "lng": 34.4}]
+                }
+            }))
+
+            frame_draw = json.loads(ws_b.receive_text())
+            draw_msg = next((m for m in frame_draw if m["type"] == "REMOTE_DRAW"), None)
+            assert draw_msg is not None
+            assert draw_msg["payload"]["shapeId"] == "poly-collab-1"
+            assert draw_msg["payload"]["phase"] == "start"
+
+
+def test_ws_disconnect_triggers_user_left(ws_client):
+    client, sync_redis = ws_client
+    user_a = str(uuid.uuid4())
+    user_b = str(uuid.uuid4())
+    ticket_a = "ticket-user-left-a"
+    ticket_b = "ticket-user-left-b"
+
+    sync_redis.set(f"ws_ticket:{ticket_a}", user_a, ex=30)
+    sync_redis.set(f"ws_ticket:{ticket_b}", user_b, ex=30)
+
+    with client.websocket_connect(f"/ws?ticket={ticket_b}") as ws_b:
+        _ = ws_b.receive_text()  # B's initial snapshot
+
+        with client.websocket_connect(f"/ws?ticket={ticket_a}") as ws_a:
+            _ = ws_a.receive_text()  # A's initial snapshot
+            _ = ws_b.receive_text()  # B receives A's USER_JOINED
+            ws_a.close()
+
+        import time
+        time.sleep(0.2)
+        frame_left = json.loads(ws_b.receive_text())
+        assert any(m["type"] == "USER_LEFT" and m["payload"]["userId"] == user_a for m in frame_left)
+
+
+def test_ws_catchup_resync_required(ws_client):
+    client, sync_redis = ws_client
+    user_id = str(uuid.uuid4())
+    ticket = "ticket-resync"
+    sync_redis.set(f"ws_ticket:{ticket}", user_id, ex=30)
+
+    # When lastEventId is invalid or trimmed, server must emit RESYNC_REQUIRED
+    with client.websocket_connect(f"/ws?ticket={ticket}&lastEventId=invalid-stream-id") as ws:
+        frame = json.loads(ws.receive_text())
+        types = [m["type"] for m in frame]
+        assert "RESYNC_REQUIRED" in types

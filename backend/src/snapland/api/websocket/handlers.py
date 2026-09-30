@@ -1,10 +1,13 @@
-import logging
+from typing import Any, Optional
 
 import orjson
+import structlog
+from pydantic import ValidationError as PydanticValidationError
 
 from snapland.api.websocket.manager import Connection
 from snapland.config import settings
-from snapland.core.domain.area import CreateAreaRequest
+from snapland.core.domain.area import Coordinate, CreateAreaRequest
+from snapland.core.domain.exceptions import ValidationError
 from snapland.core.domain.ws_messages import (
     CursorMoveServerMessage,
     CursorMoveServerPayload,
@@ -16,18 +19,43 @@ from snapland.core.domain.ws_messages import (
 )
 from snapland.core.interfaces.realtime import Envelope
 
+logger = structlog.get_logger(__name__)
 
-async def dispatch_message(conn: Connection, raw_data: str, app_state) -> None:
+
+def _validate_coordinate(coord: Any) -> Optional[Coordinate]:
+    if not isinstance(coord, dict):
+        return None
+    lat = coord.get("lat")
+    lng = coord.get("lng")
+    if lat is None or lng is None:
+        return None
+    try:
+        lat_f = float(lat)
+        lng_f = float(lng)
+        if not (-90.0 <= lat_f <= 90.0 and -180.0 <= lng_f <= 180.0):
+            return None
+        return Coordinate(lat=lat_f, lng=lng_f)
+    except (ValueError, TypeError):
+        return None
+
+
+async def dispatch_message(conn: Connection, raw_data: str, app_state: Any) -> None:
     try:
         data = orjson.loads(raw_data)
+        if not isinstance(data, dict):
+            await conn.enqueue(ErrorMessage(payload=ErrorPayload(code="VALIDATION_ERROR", message="Invalid payload")))
+            return
         msg_type = data.get("type")
-        payload = data.get("payload", {})
+        payload = data.get("payload")
+        if not isinstance(payload, dict):
+            payload = {}
     except Exception:
         await conn.enqueue(ErrorMessage(payload=ErrorPayload(code="VALIDATION_ERROR", message="Invalid JSON")))
         return
 
     rate_limiter = getattr(app_state, "rate_limiter", None)
     ephemeral_bus = getattr(app_state, "ephemeral_bus", None)
+    manager = getattr(app_state, "ws_manager", None)
 
     # 1. Rate limiting checks per HLD §9.4
     if rate_limiter:
@@ -64,8 +92,11 @@ async def dispatch_message(conn: Connection, raw_data: str, app_state) -> None:
         try:
             lat_f = float(lat)
             lng_f = float(lng)
+            if not (-90.0 <= lat_f <= 90.0 and -180.0 <= lng_f <= 180.0):
+                return
         except (ValueError, TypeError):
             return
+
         out_msg = CursorMoveServerMessage(
             payload=CursorMoveServerPayload(
                 userId=conn.user_id,
@@ -73,100 +104,133 @@ async def dispatch_message(conn: Connection, raw_data: str, app_state) -> None:
                 lng=lng_f
             )
         )
+        if manager:
+            await manager.broadcast_ephemeral(out_msg, exclude_conn_id=conn.conn_id)
         await ephemeral_bus.publish(Envelope(origin=instance_id, message=out_msg))
 
     elif msg_type == "DRAW_START":
+        shape_id = str(payload.get("shapeId", ""))[:64]
+        if not shape_id:
+            return
+        append_coords: list[Coordinate] = []
+        if "point" in payload:
+            valid_pt = _validate_coordinate(payload["point"])
+            if valid_pt:
+                append_coords.append(valid_pt)
+
         out_msg = RemoteDrawMessage(
             payload=RemoteDrawPayload(
                 userId=conn.user_id,
-                shapeId=payload.get("shapeId", ""),
+                shapeId=shape_id,
                 phase="start",
-                append=[payload["point"]] if "point" in payload else []
+                append=append_coords
             )
         )
+        if manager:
+            await manager.broadcast_ephemeral(out_msg, exclude_conn_id=conn.conn_id)
         await ephemeral_bus.publish(Envelope(origin=instance_id, message=out_msg))
 
     elif msg_type == "DRAW_UPDATE":
+        shape_id = str(payload.get("shapeId", ""))[:64]
+        if not shape_id:
+            return
+
+        raw_append = payload.get("append", [])
+        if not isinstance(raw_append, list) or len(raw_append) > 1000:
+            return
+
+        append_coords = []
+        for pt in raw_append:
+            valid_pt = _validate_coordinate(pt)
+            if valid_pt:
+                append_coords.append(valid_pt)
+
         out_msg = RemoteDrawMessage(
             payload=RemoteDrawPayload(
                 userId=conn.user_id,
-                shapeId=payload.get("shapeId", ""),
+                shapeId=shape_id,
                 phase="update",
                 seq=payload.get("seq"),
                 fromIndex=payload.get("fromIndex"),
-                append=payload.get("append")
+                append=append_coords
             )
         )
+        if manager:
+            await manager.broadcast_ephemeral(out_msg, exclude_conn_id=conn.conn_id)
         await ephemeral_bus.publish(Envelope(origin=instance_id, message=out_msg))
 
     elif msg_type == "DRAW_COMMIT":
-        shape_id = payload.get("shapeId", "")
+        shape_id = str(payload.get("shapeId", ""))[:64]
+        name = str(payload.get("name", "Untitled Area"))[:100]
+        raw_points = payload.get("points", [])
+
+        if not isinstance(raw_points, list) or len(raw_points) < 3 or len(raw_points) > 1000:
+            await conn.enqueue(
+                ErrorMessage(payload=ErrorPayload(code="VALIDATION_ERROR", message="Invalid polygon coordinates"))
+            )
+            return
+
+        points: list[Coordinate] = []
+        for pt in raw_points:
+            valid_pt = _validate_coordinate(pt)
+            if not valid_pt:
+                await conn.enqueue(
+                    ErrorMessage(payload=ErrorPayload(code="VALIDATION_ERROR", message="Invalid coordinate values"))
+                )
+                return
+            points.append(valid_pt)
+
+        try:
+            req = CreateAreaRequest(name=name, coordinates=points, shape_id=shape_id)
+            if hasattr(app_state, "area_service") and app_state.area_service:
+                await app_state.area_service.create_area(req, conn.user_id)
+            elif hasattr(app_state, "session_factory") and app_state.session_factory:
+                from snapland.api.deps import build_area_service
+                async with app_state.session_factory() as session:
+                    svc = build_area_service(session, app_state)
+                    await svc.create_area(req, conn.user_id)
+                    await session.commit()
+            else:
+                logger.error("No area_service or session_factory available")
+                await conn.enqueue(
+                    ErrorMessage(payload=ErrorPayload(code="INTERNAL_ERROR", message="Service unavailable"))
+                )
+                return
+        except (ValidationError, PydanticValidationError) as e:
+            await conn.enqueue(
+                ErrorMessage(payload=ErrorPayload(code="VALIDATION_ERROR", message=f"Invalid polygon: {e}"))
+            )
+            return
+        except Exception as e:
+            logger.error("Failed to save area from DRAW_COMMIT", error=str(e))
+            await conn.enqueue(
+                ErrorMessage(payload=ErrorPayload(code="INTERNAL_ERROR", message="Failed to save area"))
+            )
+            return
+
+        # Peer notification only broadcast AFTER successful commit
         out_msg = RemoteDrawMessage(
             payload=RemoteDrawPayload(
                 userId=conn.user_id,
                 shapeId=shape_id,
                 phase="commit",
-                name=payload.get("name"),
-                points=payload.get("points")
+                name=name,
+                points=points
             )
         )
+        if manager:
+            await manager.broadcast_ephemeral(out_msg, exclude_conn_id=conn.conn_id)
         await ephemeral_bus.publish(Envelope(origin=instance_id, message=out_msg))
 
-        area_service = getattr(app_state, "area_service", None)
-        if area_service:
-            req = CreateAreaRequest(
-                name=payload.get("name", "Untitled Area"),
-                coordinates=payload.get("points", []),
-                shape_id=shape_id
-            )
-            try:
-                await area_service.create_area(req, conn.user_id)
-            except Exception as e:
-                await conn.enqueue(ErrorMessage(payload=ErrorPayload(code="INTERNAL_ERROR", message=str(e))))
-        elif hasattr(app_state, "session_factory") and app_state.session_factory:
-            from snapland.core.services.area_service import AreaService
-            from snapland.core.services.audit_service import AuditService
-            from snapland.core.services.spatial_service import SpatialService
-            from snapland.infrastructure.cache.cache_repository import CacheRepository
-            from snapland.infrastructure.db.repositories.area_repository import AreaRepository
-            from snapland.infrastructure.pubsub.redis_streams import RedisEventStream
-
-            try:
-                async with app_state.session_factory() as session:
-                    area_repo = AreaRepository(session)
-                    spatial_svc = SpatialService()
-                    audit_svc = AuditService()
-                    cache_repo = getattr(app_state, "cache_repo", None)
-                    if not cache_repo and hasattr(app_state, "redis"):
-                        cache_repo = CacheRepository(app_state.redis)
-                    event_publisher = getattr(app_state, "event_stream", None)
-                    if not event_publisher and hasattr(app_state, "redis"):
-                        event_publisher = RedisEventStream(app_state.redis)
-                    if cache_repo and event_publisher:
-                        svc = AreaService(
-                            repo=area_repo,
-                            spatial=spatial_svc,
-                            cache=cache_repo,
-                            events=event_publisher,
-                            audit=audit_svc
-                        )
-                        req = CreateAreaRequest(
-                            name=payload.get("name", "Untitled Area"),
-                            coordinates=payload.get("points", []),
-                            shape_id=shape_id
-                        )
-                        await svc.create_area(req, conn.user_id)
-                        await session.commit()
-            except Exception as e:
-                logging.getLogger(__name__).error("Error creating area from DRAW_COMMIT: %s", e, exc_info=e)
-                await conn.enqueue(ErrorMessage(payload=ErrorPayload(code="INTERNAL_ERROR", message=str(e))))
-
     elif msg_type == "DRAW_CANCEL":
+        shape_id = str(payload.get("shapeId", ""))[:64]
         out_msg = RemoteDrawMessage(
             payload=RemoteDrawPayload(
                 userId=conn.user_id,
-                shapeId=payload.get("shapeId", ""),
+                shapeId=shape_id,
                 phase="cancel"
             )
         )
+        if manager:
+            await manager.broadcast_ephemeral(out_msg, exclude_conn_id=conn.conn_id)
         await ephemeral_bus.publish(Envelope(origin=instance_id, message=out_msg))

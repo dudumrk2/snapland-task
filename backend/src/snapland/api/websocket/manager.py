@@ -1,70 +1,129 @@
 import asyncio
-import logging
-from typing import Dict, Optional
+import collections
+from typing import Any, Dict, Optional
 from uuid import UUID
 
 import orjson
+import structlog
 from fastapi import WebSocket
 
 from snapland.core.domain.user import User
 from snapland.core.domain.ws_messages import RemoteDrawMessage, ServerMessage
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
+DURABLE_TYPES = frozenset({"AREA_SAVED", "AREA_UPDATED", "AREA_DELETED"})
+
+WS_MESSAGES_DROPPED_TOTAL: Optional[Any] = None
 try:
-    from prometheus_client import Counter
-    WS_MESSAGES_DROPPED_TOTAL = Counter(
-        "ws_messages_dropped_total",
-        "Total dropped ephemeral messages due to full queue",
-        ["reason"],
-    )
+    from prometheus_client import REGISTRY, Counter
+    if "ws_messages_dropped_total" in REGISTRY._names_to_collectors:
+        WS_MESSAGES_DROPPED_TOTAL = REGISTRY._names_to_collectors["ws_messages_dropped_total"]
+    else:
+        WS_MESSAGES_DROPPED_TOTAL = Counter(
+            "ws_messages_dropped_total",
+            "Total dropped ephemeral messages due to full queue",
+            ["reason"],
+        )
 except Exception:
-    WS_MESSAGES_DROPPED_TOTAL = None  # type: ignore[assignment]
+    WS_MESSAGES_DROPPED_TOTAL = None
+
+
+class ConnectionQueue:
+    def __init__(self, maxsize: int = 256):
+        self.maxsize = maxsize
+        self._items: collections.deque[ServerMessage] = collections.deque()
+        self._has_items = asyncio.Event()
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+
+    def qsize(self) -> int:
+        return len(self._items)
+
+    def empty(self) -> bool:
+        return len(self._items) == 0
+
+    def full(self) -> bool:
+        return len(self._items) >= self.maxsize
+
+    async def get(self) -> ServerMessage:
+        if self._loop is None:
+            self._loop = asyncio.get_running_loop()
+        while not self._items:
+            self._has_items.clear()
+            await self._has_items.wait()
+        item = self._items.popleft()
+        if not self._items:
+            self._has_items.clear()
+        return item
+
+    def get_nowait(self) -> ServerMessage:
+        if not self._items:
+            raise asyncio.QueueEmpty()
+        item = self._items.popleft()
+        if not self._items:
+            self._has_items.clear()
+        return item
+
+    def push(self, message: ServerMessage) -> None:
+        self._items.append(message)
+        if self._loop is not None and not self._loop.is_closed():
+            self._loop.call_soon_threadsafe(self._has_items.set)
+        else:
+            self._has_items.set()
+
+    def evict_oldest_ephemeral(self) -> bool:
+        """Finds and evicts the oldest ephemeral message. Returns True if evicted, False if all durable."""
+        for idx, item in enumerate(self._items):
+            if item.type not in DURABLE_TYPES:
+                del self._items[idx]
+                if not self._items:
+                    self._has_items.clear()
+                return True
+        return False
 
 
 class Connection:
-    def __init__(self, websocket: WebSocket, user_id: UUID, conn_id: str):
+    def __init__(self, websocket: WebSocket, user_id: UUID, conn_id: str, maxsize: int = 256):
         self.websocket = websocket
         self.user_id = user_id
         self.conn_id = conn_id
-        self.queue: asyncio.Queue[ServerMessage] = asyncio.Queue(maxsize=256)
+        self.queue = ConnectionQueue(maxsize=maxsize)
         self.writer_task: Optional[asyncio.Task] = None
         self.closed = False
         self.dropped_count = 0
         self.user: Optional[User] = None
-        
+
     async def enqueue(self, message: ServerMessage) -> None:
         if self.closed:
             return
-            
-        is_durable = message.type in ("AREA_SAVED", "AREA_UPDATED", "AREA_DELETED")
-        
-        # HLD 9.3: If durable message cannot be enqueued, close with 1013
-        # If ephemeral, drop oldest ephemeral.
+
+        is_durable = message.type in DURABLE_TYPES
+
         if self.queue.full():
-            if is_durable:
-                self.closed = True
-                await self.websocket.close(code=1013)
-                return
+            evicted = self.queue.evict_oldest_ephemeral()
+            if evicted:
+                self.dropped_count += 1
+                if WS_MESSAGES_DROPPED_TOTAL is not None:
+                    WS_MESSAGES_DROPPED_TOTAL.labels(reason="queue_full").inc()
             else:
-                # drop oldest
-                try:
-                    self.queue.get_nowait()
+                # Queue has only durables
+                if is_durable:
+                    self.closed = True
+                    asyncio.create_task(self.websocket.close(code=1013))
+                    return
+                else:
+                    # Drop incoming ephemeral message without closing socket
                     self.dropped_count += 1
                     if WS_MESSAGES_DROPPED_TOTAL is not None:
                         WS_MESSAGES_DROPPED_TOTAL.labels(reason="queue_full").inc()
-                except asyncio.QueueEmpty:
-                    pass
-                    
-        try:
-            self.queue.put_nowait(message)
-        except asyncio.QueueFull:
-            if is_durable:
-                self.closed = True
-                await self.websocket.close(code=1013)
+                    return
+
+        self.queue.push(message)
 
 
 class WebSocketManager:
+    MAX_CONNECTIONS_PER_USER = 10
+
     def __init__(self):
         self.active_connections: Dict[str, Connection] = {}
 
@@ -72,13 +131,25 @@ class WebSocketManager:
     def total_dropped_count(self) -> int:
         return sum(c.dropped_count for c in self.active_connections.values())
 
-    async def connect(self, websocket: WebSocket, user_id: UUID, conn_id: str) -> Connection:
+    async def connect(
+        self, websocket: WebSocket, user_id: UUID, conn_id: str, register: bool = True
+    ) -> Optional[Connection]:
+        user_conns = self.get_user_connections(user_id)
+        if len(user_conns) >= self.MAX_CONNECTIONS_PER_USER:
+            await websocket.accept()
+            await websocket.close(code=4008, reason="too_many_connections")
+            return None
+
         await websocket.accept()
         conn = Connection(websocket, user_id, conn_id)
-        self.active_connections[conn_id] = conn
-        
         conn.writer_task = asyncio.create_task(self._writer(conn))
+        if register:
+            self.active_connections[conn_id] = conn
         return conn
+
+    def register(self, conn: Connection) -> None:
+        if not conn.closed:
+            self.active_connections[conn.conn_id] = conn
 
     async def disconnect(self, conn_id: str):
         conn = self.active_connections.pop(conn_id, None)
@@ -86,16 +157,14 @@ class WebSocketManager:
             conn.closed = True
             if conn.writer_task:
                 conn.writer_task.cancel()
-                
+
     async def _writer(self, conn: Connection):
         try:
             while not conn.closed:
                 msg = await conn.queue.get()
                 batch = [msg]
-                
-                # HLD 9.3: micro-batch window 50ms for ephemeral messages
-                # If msg is durable (or a durable message arrives), flush immediately.
-                is_durable = msg.type in ("AREA_SAVED", "AREA_UPDATED", "AREA_DELETED")
+
+                is_durable = msg.type in DURABLE_TYPES
                 if not is_durable:
                     deadline = asyncio.get_running_loop().time() + 0.05
                     while True:
@@ -105,7 +174,7 @@ class WebSocketManager:
                         try:
                             m = await asyncio.wait_for(conn.queue.get(), timeout=remaining)
                             batch.append(m)
-                            if m.type in ("AREA_SAVED", "AREA_UPDATED", "AREA_DELETED"):
+                            if m.type in DURABLE_TYPES:
                                 break
                         except asyncio.TimeoutError:
                             break
@@ -113,57 +182,84 @@ class WebSocketManager:
                     while not conn.queue.empty():
                         m = conn.queue.get_nowait()
                         batch.append(m)
-                
+
                 coalesced = self._coalesce(batch)
-                
-                data = [m.model_dump(exclude_none=True) for m in coalesced]
+                data = [m.model_dump(by_alias=True, exclude_none=True) for m in coalesced]
                 await conn.websocket.send_text(orjson.dumps(data).decode("utf-8"))
-                
+
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            logger.warning("WebSocket writer error on conn %s: %s", conn.conn_id, e)
+            logger.warning("WebSocket writer error", conn_id=conn.conn_id, error=str(e))
             conn.closed = True
+            try:
+                await conn.websocket.close()
+            except Exception:
+                pass
 
     def _coalesce(self, batch: list[ServerMessage]) -> list[ServerMessage]:
-        cursors: dict[UUID, ServerMessage] = {}
-        draws: dict[str, RemoteDrawMessage] = {}
-        
         result: list[ServerMessage] = []
+        cursor_indices: dict[UUID, int] = {}
+        pending_draw_indices: dict[str, int] = {}
+
         for msg in batch:
             if msg.type == "CURSOR_MOVE":
-                cursors[msg.payload.userId] = msg
-            elif msg.type == "REMOTE_DRAW" and msg.payload.phase == "update":
-                shape_id = msg.payload.shapeId
-                if shape_id in draws:
-                    prev = draws[shape_id]
-                    # contiguous merge
-                    if prev.payload.seq is not None and msg.payload.seq is not None and prev.payload.seq + 1 == msg.payload.seq:
-                        prev.payload.seq = msg.payload.seq
-                        if prev.payload.append is not None and msg.payload.append is not None:
-                            prev.payload.append.extend(msg.payload.append)
-                    else:
-                        result.append(prev)
-                        draws[shape_id] = msg
+                user_id = msg.payload.userId
+                if user_id in cursor_indices:
+                    idx = cursor_indices[user_id]
+                    result[idx] = msg.model_copy(deep=True)
                 else:
-                    draws[shape_id] = msg
+                    cursor_indices[user_id] = len(result)
+                    result.append(msg.model_copy(deep=True))
+
+            elif msg.type == "REMOTE_DRAW":
+                shape_id = msg.payload.shapeId
+                if msg.payload.phase == "update" and shape_id in pending_draw_indices:
+                    idx = pending_draw_indices[shape_id]
+                    prev = result[idx]
+                    if (
+                        isinstance(prev, RemoteDrawMessage)
+                        and prev.payload.seq is not None
+                        and msg.payload.seq is not None
+                        and prev.payload.seq + 1 == msg.payload.seq
+                    ):
+                        prev_append = list(prev.payload.append or [])
+                        new_append = list(msg.payload.append or [])
+                        result[idx] = prev.model_copy(
+                            update={
+                                "payload": prev.payload.model_copy(
+                                    update={
+                                        "seq": msg.payload.seq,
+                                        "append": prev_append + new_append,
+                                    },
+                                    deep=True,
+                                )
+                            },
+                            deep=True,
+                        )
+                        continue
+                    else:
+                        del pending_draw_indices[shape_id]
+                elif shape_id in pending_draw_indices:
+                    del pending_draw_indices[shape_id]
+
+                msg_copy = msg.model_copy(deep=True)
+                if msg.payload.phase == "update":
+                    pending_draw_indices[shape_id] = len(result)
+                result.append(msg_copy)
+
             else:
-                result.append(msg)
-                
-        for c in cursors.values():
-            result.append(c)
-        for d in draws.values():
-            result.append(d)
-            
+                result.append(msg.model_copy(deep=True))
+
         return result
-        
+
     async def broadcast_ephemeral(self, message: ServerMessage, exclude_conn_id: Optional[str] = None):
-        for conn_id, conn in self.active_connections.items():
-            if conn_id != exclude_conn_id:
+        for conn in list(self.active_connections.values()):
+            if conn.conn_id != exclude_conn_id:
                 await conn.enqueue(message)
-                
+
     async def broadcast_durable(self, message: ServerMessage):
-        for conn in self.active_connections.values():
+        for conn in list(self.active_connections.values()):
             await conn.enqueue(message)
 
     def get_user_connections(self, user_id: UUID) -> list[Connection]:

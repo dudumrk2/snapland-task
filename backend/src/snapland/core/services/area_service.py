@@ -67,7 +67,7 @@ class AreaService(IAreaService):
             created_at=created_at_dt,
             created_by=created_area.created_by,
             area=created_area,
-            shape_id=getattr(req, "shape_id", None)
+            shape_id=req.shape_id
         ))
         return created_area
 

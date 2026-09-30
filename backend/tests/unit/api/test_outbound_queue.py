@@ -1,4 +1,3 @@
-import asyncio
 import datetime
 import uuid
 from unittest.mock import AsyncMock, MagicMock
@@ -34,9 +33,9 @@ async def test_enqueue_normal(mock_ws):
 
 
 @pytest.mark.asyncio
+@pytest.mark.asyncio
 async def test_enqueue_ephemeral_overflow_drops_oldest(mock_ws):
-    conn = Connection(mock_ws, uuid.uuid4(), "conn-1")
-    conn.queue = asyncio.Queue(maxsize=2)
+    conn = Connection(mock_ws, uuid.uuid4(), "conn-1", maxsize=2)
     
     msg1 = CursorMoveServerMessage(payload=CursorMoveServerPayload(userId=conn.user_id, lat=1.0, lng=1.0))
     msg2 = CursorMoveServerMessage(payload=CursorMoveServerPayload(userId=conn.user_id, lat=2.0, lng=2.0))
@@ -59,12 +58,12 @@ async def test_enqueue_ephemeral_overflow_drops_oldest(mock_ws):
 
 
 @pytest.mark.asyncio
-async def test_enqueue_durable_overflow_closes_with_1013(mock_ws):
-    conn = Connection(mock_ws, uuid.uuid4(), "conn-1")
-    conn.queue = asyncio.Queue(maxsize=1)
+async def test_enqueue_durable_evicts_ephemeral_instead_of_closing(mock_ws):
+    conn = Connection(mock_ws, uuid.uuid4(), "conn-1", maxsize=1)
     
     ephemeral = CursorMoveServerMessage(payload=CursorMoveServerPayload(userId=conn.user_id, lat=1.0, lng=1.0))
     await conn.enqueue(ephemeral)
+    assert conn.queue.qsize() == 1
     
     dummy_area = Area(
         id=uuid.uuid4(), name="Area", coordinates=[], area_km2=1.0, version=1,
@@ -73,8 +72,31 @@ async def test_enqueue_durable_overflow_closes_with_1013(mock_ws):
     )
     durable = AreaSavedMessage(eventId="1-0", payload=AreaSavedPayload(area=dummy_area))
     
-    # Enqueueing durable into full queue must close with 1013
+    # Enqueueing durable when ephemeral is present should evict ephemeral and stay open
     await conn.enqueue(durable)
+    assert conn.closed is False
+    assert conn.dropped_count == 1
+    assert conn.queue.qsize() == 1
+    assert conn.queue.get_nowait().type == "AREA_SAVED"
+
+
+@pytest.mark.asyncio
+async def test_enqueue_durable_overflow_closes_with_1013_when_no_ephemeral_to_evict(mock_ws):
+    conn = Connection(mock_ws, uuid.uuid4(), "conn-1", maxsize=1)
+    
+    dummy_area = Area(
+        id=uuid.uuid4(), name="Area", coordinates=[], area_km2=1.0, version=1,
+        created_by=conn.user_id, last_edited_by=conn.user_id,
+        created_at=datetime.datetime.now(datetime.UTC), updated_at=datetime.datetime.now(datetime.UTC)
+    )
+    durable1 = AreaSavedMessage(eventId="1-0", payload=AreaSavedPayload(area=dummy_area))
+    durable2 = AreaSavedMessage(eventId="2-0", payload=AreaSavedPayload(area=dummy_area))
+    
+    await conn.enqueue(durable1)
+    assert conn.queue.qsize() == 1
+    
+    # Enqueueing second durable into full queue of only durables closes with 1013
+    await conn.enqueue(durable2)
     mock_ws.close.assert_called_once_with(code=1013)
     assert conn.closed is True
 

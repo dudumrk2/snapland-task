@@ -17,7 +17,7 @@ from snapland.api.websocket.route import manager as ws_manager
 from snapland.api.websocket.route import router as ws_router
 from snapland.config import settings
 from snapland.core.domain.ws_messages import UserLeftMessage, UserLeftPayload
-from snapland.core.interfaces.realtime import IEphemeralBus, IEventStream, IPresenceStore
+from snapland.core.interfaces.realtime import Envelope, IEphemeralBus, IEventStream, IPresenceStore
 from snapland.infrastructure.cache.cache_repository import CacheRepository
 from snapland.infrastructure.pubsub.redis_presence import RedisPresenceStore
 from snapland.infrastructure.pubsub.redis_pubsub import RedisEphemeralBus
@@ -37,7 +37,7 @@ def setup_logging():
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
-            structlog.processors.JSONRenderer()
+            structlog.processors.JSONRenderer(),
         ],
         logger_factory=structlog.stdlib.LoggerFactory(),
         wrapper_class=structlog.stdlib.BoundLogger,
@@ -56,69 +56,116 @@ logger = structlog.get_logger(__name__)
 
 
 async def run_ephemeral_subscriber(app: FastAPI):
-    ephemeral_bus: IEphemeralBus = app.state.ephemeral_bus
-    manager: WebSocketManager = app.state.ws_manager
     instance_id = settings.INSTANCE_ID
+    backoff = 1.0
+    while True:
+        try:
+            if hasattr(app.state, "bg_tasks_status"):
+                app.state.bg_tasks_status["ephemeral_subscriber"] = True
+            ephemeral_bus: IEphemeralBus = app.state.ephemeral_bus
+            manager: WebSocketManager = app.state.ws_manager
 
-    try:
-        async for envelope in ephemeral_bus.subscribe():
-            # HLD §9.2 Multi-instance echo prevention: skip envelopes matching local INSTANCE_ID
-            if envelope.origin == instance_id:
-                continue
-            await manager.broadcast_ephemeral(envelope.message)
-    except asyncio.CancelledError:
-        pass
-    except Exception as e:
-        logger.error("Ephemeral subscriber error", exc_info=e)
+            async for envelope in ephemeral_bus.subscribe():
+                backoff = 1.0
+                # HLD §9.2 Multi-instance echo prevention: skip envelopes matching local INSTANCE_ID
+                if envelope.origin == instance_id:
+                    continue
+                await manager.broadcast_ephemeral(envelope.message)
+            break
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            if hasattr(app.state, "bg_tasks_status"):
+                app.state.bg_tasks_status["ephemeral_subscriber"] = False
+            logger.error("Ephemeral subscriber error, retrying...", exc_info=e, backoff=backoff)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 10.0)
 
 
 async def run_stream_follower(app: FastAPI):
-    event_stream: IEventStream = app.state.event_stream
-    manager: WebSocketManager = app.state.ws_manager
+    backoff = 1.0
+    while True:
+        try:
+            if hasattr(app.state, "bg_tasks_status"):
+                app.state.bg_tasks_status["stream_follower"] = True
+            event_stream: IEventStream = app.state.event_stream
+            manager: WebSocketManager = app.state.ws_manager
 
-    try:
-        async for event_id, message in event_stream.follow():
-            if hasattr(message, "eventId"):
-                message.eventId = event_id
-            await manager.broadcast_durable(message)
-    except asyncio.CancelledError:
-        pass
-    except Exception as e:
-        logger.error("Stream follower error", exc_info=e)
+            async for event_id, message in event_stream.follow():
+                backoff = 1.0
+                if hasattr(message, "eventId"):
+                    message.eventId = event_id
+                await manager.broadcast_durable(message)
+            break
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            if hasattr(app.state, "bg_tasks_status"):
+                app.state.bg_tasks_status["stream_follower"] = False
+            logger.error("Stream follower error, retrying...", exc_info=e, backoff=backoff)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 10.0)
 
 
 async def run_presence_reaper(app: FastAPI):
-    presence_store: IPresenceStore = app.state.presence_store
-    manager: WebSocketManager = app.state.ws_manager
+    backoff = 1.0
+    while True:
+        try:
+            if hasattr(app.state, "bg_tasks_status"):
+                app.state.bg_tasks_status["presence_reaper"] = True
+            presence_store: IPresenceStore = app.state.presence_store
+            manager: WebSocketManager = app.state.ws_manager
+            ephemeral_bus = getattr(app.state, "ephemeral_bus", None)
 
-    try:
-        while True:
             await asyncio.sleep(10)
+            backoff = 1.0
             expired_user_ids = await presence_store.reap_expired()
             for user_id in expired_user_ids:
                 left_msg = UserLeftMessage(payload=UserLeftPayload(userId=user_id))
                 await manager.broadcast_ephemeral(left_msg)
-    except asyncio.CancelledError:
-        pass
-    except Exception as e:
-        logger.error("Presence reaper error", exc_info=e)
+                if ephemeral_bus:
+                    await ephemeral_bus.publish(Envelope(origin=settings.INSTANCE_ID, message=left_msg))
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            if hasattr(app.state, "bg_tasks_status"):
+                app.state.bg_tasks_status["presence_reaper"] = False
+            logger.error("Presence reaper error, retrying...", exc_info=e, backoff=backoff)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 10.0)
 
 
 async def run_presence_heartbeat(app: FastAPI):
-    presence_store: IPresenceStore = app.state.presence_store
-    manager: WebSocketManager = app.state.ws_manager
+    backoff = 1.0
+    while True:
+        try:
+            if hasattr(app.state, "bg_tasks_status"):
+                app.state.bg_tasks_status["presence_heartbeat"] = True
+            presence_store: IPresenceStore = app.state.presence_store
+            manager: WebSocketManager = app.state.ws_manager
 
-    try:
-        while True:
             await asyncio.sleep(10)
-            for conn_id, conn in list(manager.active_connections.items()):
-                user = getattr(conn, "user", None)
-                display_name = user.display_name if user else "User"
-                await presence_store.heartbeat(conn.user_id, conn_id, display_name)
-    except asyncio.CancelledError:
-        pass
-    except Exception as e:
-        logger.error("Presence heartbeat error", exc_info=e)
+            backoff = 1.0
+            conns = list(manager.active_connections.items())
+            if conns:
+                items = []
+                for conn_id, conn in conns:
+                    user = getattr(conn, "user", None)
+                    display_name = user.display_name if user else "User"
+                    items.append((conn.user_id, conn_id, display_name))
+                if hasattr(presence_store, "heartbeat_batch"):
+                    await presence_store.heartbeat_batch(items)
+                else:
+                    for uid, cid, dname in items:
+                        await presence_store.heartbeat(uid, cid, dname)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            if hasattr(app.state, "bg_tasks_status"):
+                app.state.bg_tasks_status["presence_heartbeat"] = False
+            logger.error("Presence heartbeat error, retrying...", exc_info=e, backoff=backoff)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 10.0)
 
 
 @asynccontextmanager
@@ -146,6 +193,13 @@ async def lifespan(app: FastAPI):
     if not hasattr(app.state, "session_factory") or app.state.session_factory is None:
         app.state.session_factory = async_sessionmaker(app.state.db_engine, class_=AsyncSession, expire_on_commit=False)
 
+    app.state.bg_tasks_status = {
+        "ephemeral_subscriber": True,
+        "stream_follower": True,
+        "presence_reaper": True,
+        "presence_heartbeat": True,
+    }
+
     tasks = [
         asyncio.create_task(run_ephemeral_subscriber(app)),
         asyncio.create_task(run_stream_follower(app)),
@@ -161,9 +215,9 @@ async def lifespan(app: FastAPI):
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
 
-        if hasattr(app.state, "redis"):
+        if hasattr(app.state, "redis") and app.state.redis:
             await app.state.redis.aclose()
-        if hasattr(app.state, "db_engine"):
+        if hasattr(app.state, "db_engine") and app.state.db_engine:
             await app.state.db_engine.dispose()
 
 
