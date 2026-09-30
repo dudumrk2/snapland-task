@@ -68,6 +68,7 @@ class RedisEventStream(IEventStream, IEventPublisher):
             minid=f"{min_timestamp}-0",
             approximate=True
         )
+        await self.redis.xtrim(self.stream_key, maxlen=10000, approximate=True)
         return msg_id.decode("utf-8") if isinstance(msg_id, bytes) else str(msg_id)
 
     async def read_since(self, last_id: str, limit: int = 150) -> CatchUp:

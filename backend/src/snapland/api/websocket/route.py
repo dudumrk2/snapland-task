@@ -63,9 +63,9 @@ async def websocket_endpoint(
         await websocket.close(code=4001)
         return
 
-    # 3. Connect to manager (unregistered from live broadcast pool until catch-up replay completes)
+    # 3. Connect to manager (registered immediately to live broadcast pool)
     conn_id = str(uuid.uuid4())
-    conn = await manager.connect(websocket, user_id, conn_id, register=False)
+    conn = await manager.connect(websocket, user_id, conn_id, register=True)
     if not conn:
         return
 
@@ -130,15 +130,12 @@ async def websocket_endpoint(
                             ResyncRequiredMessage(payload=ResyncRequiredPayload(reason="stream_trimmed"))
                         )
                     else:
-                        for event_id, msg in catchup.events:
+                        for event_id, msg in reversed(catchup.events):
                             if hasattr(msg, "eventId"):
                                 msg.eventId = event_id
-                            await conn.enqueue(msg)
+                            conn.queue.push_front(msg)
                 except Exception as e:
                     logger.warning("Catch-up replay error", exc_info=e)
-
-        # 7. Register connection into live broadcast pool
-        manager.register(conn)
 
         # 8. Connection TTL Task: close with code 4401 after 15 min (access token lifespan)
         async def connection_ttl_timer():

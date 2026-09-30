@@ -4,9 +4,10 @@ import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from main import app
 from snapland.api.deps import get_db
 from snapland.config import settings
@@ -15,7 +16,7 @@ from snapland.infrastructure.db.models import Base
 TEST_DB_URL = os.environ.get("TEST_DATABASE_URL", settings.DATABASE_URL)
 
 engine = create_async_engine(TEST_DB_URL, echo=False)
-TestingSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+TestingSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 @pytest_asyncio.fixture
 async def db_session():

@@ -20,13 +20,30 @@ def mock_conn():
 
 @pytest.fixture
 def mock_app_state():
+    import datetime
+    from snapland.core.domain.area import Area
+    
     state = MagicMock()
     state.rate_limiter = MagicMock()
     state.rate_limiter.check_limit = AsyncMock(return_value=RateLimitResult(allowed=True))
     state.ephemeral_bus = MagicMock()
     state.ephemeral_bus.publish = AsyncMock()
+    state.event_stream = MagicMock()
+    state.event_stream.publish = AsyncMock()
     state.area_service = MagicMock()
-    state.area_service.create_area = AsyncMock()
+    
+    mock_area = Area(
+        id=uuid.uuid4(),
+        name="Mock",
+        coordinates=[],
+        area_km2=1.0,
+        version=1,
+        created_by=uuid.uuid4(),
+        last_edited_by=uuid.uuid4(),
+        created_at=datetime.datetime.now(),
+        updated_at=datetime.datetime.now()
+    )
+    state.area_service.create_area = AsyncMock(return_value=mock_area)
     state.ws_manager = MagicMock()
     state.ws_manager.broadcast_ephemeral = AsyncMock()
     return state

@@ -182,13 +182,14 @@ async def dispatch_message(conn: Connection, raw_data: str, app_state: Any) -> N
 
         try:
             req = CreateAreaRequest(name=name, coordinates=points, shape_id=shape_id)
+            created_area = None
             if hasattr(app_state, "area_service") and app_state.area_service:
-                await app_state.area_service.create_area(req, conn.user_id)
+                created_area = await app_state.area_service.create_area(req, conn.user_id)
             elif hasattr(app_state, "session_factory") and app_state.session_factory:
                 from snapland.api.deps import build_area_service
                 async with app_state.session_factory() as session:
                     svc = build_area_service(session, app_state)
-                    await svc.create_area(req, conn.user_id)
+                    created_area = await svc.create_area(req, conn.user_id)
                     await session.commit()
             else:
                 logger.error("No area_service or session_factory available")

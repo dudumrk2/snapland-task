@@ -17,10 +17,10 @@ from snapland.infrastructure.pubsub.redis_streams import RedisEventStream
 class ThreadSafeFakeRedisProxy:
     def __init__(self, server: fakeredis.FakeServer):
         self._server = server
+        self._redis = fakeredis.aioredis.FakeRedis(server=self._server, decode_responses=True)
 
     def __getattr__(self, name: str):
-        r = fakeredis.aioredis.FakeRedis(server=self._server, decode_responses=True)
-        return getattr(r, name)
+        return getattr(self._redis, name)
 
 
 @pytest.fixture

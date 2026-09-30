@@ -71,6 +71,13 @@ class ConnectionQueue:
         else:
             self._has_items.set()
 
+    def push_front(self, message: ServerMessage) -> None:
+        self._items.appendleft(message)
+        if self._loop is not None and not self._loop.is_closed():
+            self._loop.call_soon_threadsafe(self._has_items.set)
+        else:
+            self._has_items.set()
+
     def evict_oldest_ephemeral(self) -> bool:
         """Finds and evicts the oldest ephemeral message. Returns True if evicted, False if all durable."""
         for idx, item in enumerate(self._items):
@@ -157,6 +164,12 @@ class WebSocketManager:
             conn.closed = True
             if conn.writer_task:
                 conn.writer_task.cancel()
+                try:
+                    await conn.writer_task
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    logger.debug("Writer task error on disconnect", exc_info=e)
 
     async def _writer(self, conn: Connection):
         try:
