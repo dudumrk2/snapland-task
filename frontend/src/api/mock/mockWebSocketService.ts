@@ -23,7 +23,8 @@ export class MockWebSocketService implements IWebSocketService {
   private _lastEventId: string | null = null;
   private mockIntervalTimer: any = null;
   private connectTimer: any = null;
-  public sentMessages: WsMessage<any>[] = [];
+  /** Test-only sent messages log for verification */
+  public readonly sentMessages: WsMessage<any>[] = [];
 
   get connectionState(): ConnectionState {
     return this.state;

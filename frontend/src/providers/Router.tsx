@@ -1,4 +1,4 @@
-import React, { useState, useEffect, ReactNode } from 'react';
+import React, { useState, useEffect } from 'react';
 import { LoginPage } from '../pages/LoginPage';
 import { MapPage } from '../pages/MapPage';
 import { useAuthStore } from '../store/authStore';
@@ -8,9 +8,7 @@ const ROUTES = {
   MAP: '/',
 } as const;
 
-export interface RouterProps {
-  children?: ReactNode;
-}
+export interface RouterProps {}
 
 /**
  * Minimal client-side Router.

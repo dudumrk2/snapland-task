@@ -17,9 +17,10 @@ export const AreaPanel: React.FC<AreaPanelProps> = ({
   const { areas, selectedArea, selectedAreaId, selectArea, error } = useAreas();
   const [searchQuery, setSearchQuery] = useState('');
 
-  const filteredAreas = areas.filter((a) =>
-    a.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const trimmedQuery = searchQuery.trim().toLowerCase();
+  const filteredAreas = trimmedQuery
+    ? areas.filter((a) => a.name.toLowerCase().includes(trimmedQuery))
+    : areas;
 
   return (
     <div

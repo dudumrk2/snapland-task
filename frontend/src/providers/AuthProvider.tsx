@@ -25,12 +25,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     authApi
       .refresh()
       .then(async (tokens) => {
-        const user = (await authApi.getCurrentUser()) || {
-          id: 'user-default-1',
-          email: 'test@example.com',
-          displayName: 'Test User',
-        };
-        useAuthStore.getState().setSession(user, tokens.accessToken);
+        const user = await authApi.getCurrentUser();
+        if (user) {
+          useAuthStore.getState().setSession(user, tokens.accessToken);
+        } else {
+          useAuthStore.getState().clearSession();
+        }
       })
       .catch(() => {
         useAuthStore.getState().clearSession();

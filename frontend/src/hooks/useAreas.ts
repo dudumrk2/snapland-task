@@ -154,8 +154,9 @@ export function useAreas() {
       try {
         const historyList = await areaApi.getAreaHistory(id);
         setHistory(historyList);
-      } catch (err: any) {
-        setError(err.message || 'Failed to fetch history');
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Failed to fetch history';
+        setError(msg);
       }
     },
     [areaApi, setHistory, setError]
@@ -182,8 +183,9 @@ export function useAreas() {
       });
       setConflict(null);
       cancelEditing();
-    } catch (err: any) {
-      setError(err.message || 'Force overwrite failed');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Force overwrite failed';
+      setError(msg);
       throw err;
     }
   }, [conflict, updateArea, setConflict, cancelEditing, setError]);
@@ -200,8 +202,9 @@ export function useAreas() {
         );
         setConflict(null);
         cancelEditing();
-      } catch (err: any) {
-        setError(err.message || 'Save as new failed');
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Save as new failed';
+        setError(msg);
         throw err;
       }
     },

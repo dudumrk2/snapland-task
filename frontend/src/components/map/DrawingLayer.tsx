@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import { useDrawing } from '../../hooks/useDrawing';
+import { useAreasStore } from '../../store/areasStore';
 
 export interface DrawingLayerProps {
   map: L.Map | null;
@@ -26,8 +27,8 @@ export const DrawingLayer: React.FC<DrawingLayerProps> = ({
     saveDrawing,
   } = drawingController;
 
+  const isSaving = useAreasStore((s) => s.isSaving);
   const [areaName, setAreaName] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const activeLineRef = useRef<L.Polyline | null>(null);
@@ -209,15 +210,13 @@ export const DrawingLayer: React.FC<DrawingLayerProps> = ({
     e.preventDefault();
     if (!areaName.trim() || isSaving) return;
 
-    setIsSaving(true);
     setSaveError(null);
     try {
       await saveDrawing(areaName.trim());
       setAreaName('');
-    } catch (err: any) {
-      setSaveError(err.message || 'Failed to save area');
-    } finally {
-      setIsSaving(false);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to save area';
+      setSaveError(msg);
     }
   };
 

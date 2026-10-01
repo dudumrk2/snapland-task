@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { Area } from '@snapland/shared-types';
 import { useAreas } from '../../hooks/useAreas';
 import { formatArea } from '../../utils/areaCalculation';
+import { ConflictError } from '../../api/interfaces/IAreaApi';
 
 export interface AreaDetailsProps {
   area: Area;
@@ -18,10 +19,11 @@ export const AreaDetails: React.FC<AreaDetailsProps> = ({ area, onClose }) => {
     deleteArea,
     history,
     fetchHistory,
+    isSaving,
+    isDeleting,
   } = useAreas();
 
-  const [isSaving, setIsSaving] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
@@ -29,13 +31,15 @@ export const AreaDetails: React.FC<AreaDetailsProps> = ({ area, onClose }) => {
 
   useEffect(() => {
     if (showHistory) {
-      fetchHistory(area.id);
+      setIsLoadingHistory(true);
+      fetchHistory(area.id).finally(() => {
+        setIsLoadingHistory(false);
+      });
     }
   }, [showHistory, area.id, fetchHistory]);
 
   const handleSaveEdit = async () => {
     if (!editedCoordinates) return;
-    setIsSaving(true);
     setLocalError(null);
     try {
       await updateArea(area.id, {
@@ -43,27 +47,24 @@ export const AreaDetails: React.FC<AreaDetailsProps> = ({ area, onClose }) => {
         version: area.version,
       });
       cancelEditing();
-    } catch (err: any) {
-      // Non-conflict errors are displayed locally
-      if (!err?.currentArea) {
-        setLocalError(err.message || 'Failed to save vertices');
+    } catch (err: unknown) {
+      // Non-conflict errors are displayed locally (ConflictError handled by OCC dialog)
+      if (!(err instanceof ConflictError)) {
+        const msg = err instanceof Error ? err.message : 'Failed to save vertices';
+        setLocalError(msg);
       }
-    } finally {
-      setIsSaving(false);
     }
   };
 
   const handleDelete = async () => {
     if (!window.confirm(`Are you sure you want to delete "${area.name}"?`)) return;
-    setIsDeleting(true);
     setLocalError(null);
     try {
       await deleteArea(area.id);
       onClose();
-    } catch (err: any) {
-      setLocalError(err.message || 'Failed to delete area');
-    } finally {
-      setIsDeleting(false);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to delete area';
+      setLocalError(msg);
     }
   };
 
@@ -241,8 +242,10 @@ export const AreaDetails: React.FC<AreaDetailsProps> = ({ area, onClose }) => {
               border: '1px solid #e5e7eb',
             }}
           >
-            {history.length === 0 ? (
+            {isLoadingHistory ? (
               <span style={{ color: '#9ca3af' }}>Loading history...</span>
+            ) : history.length === 0 ? (
+              <span style={{ color: '#9ca3af' }}>No version history available</span>
             ) : (
               history.map((ver) => (
                 <div

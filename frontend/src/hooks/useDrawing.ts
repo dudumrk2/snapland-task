@@ -167,6 +167,10 @@ export function useDrawing(options?: UseDrawingOptions) {
       const clean = removeDuplicateConsecutive(points);
       if (clean.length < 3) return;
 
+      // Note on protocol division of responsibility (HLD §9.2 / §11):
+      // The REST API call is authoritative and persists the area to the database.
+      // The DRAW_COMMIT WebSocket message notifies active peers to dismiss their remote
+      // drawing ghost preview for this shapeId, avoiding duplicate creation on the server.
       const createdArea = await createArea(name, clean);
 
       if (shapeIdRef.current) {

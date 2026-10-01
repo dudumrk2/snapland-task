@@ -71,7 +71,7 @@ export class LayerManager {
     if (!map.getPane('collaborationPane')) {
       const pane = map.createPane('collaborationPane');
       pane.style.zIndex = '470';
-      pane.style.pointerEvents = 'auto';
+      pane.style.pointerEvents = 'none';
     }
   }
 
