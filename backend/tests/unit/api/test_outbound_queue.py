@@ -19,6 +19,7 @@ from snapland.core.domain.ws_messages import (
 @pytest.fixture
 def mock_ws():
     ws = MagicMock()
+    ws.accept = AsyncMock()
     ws.close = AsyncMock()
     ws.send_text = AsyncMock()
     return ws
@@ -32,7 +33,6 @@ async def test_enqueue_normal(mock_ws):
     assert conn.queue.qsize() == 1
 
 
-@pytest.mark.asyncio
 @pytest.mark.asyncio
 async def test_enqueue_ephemeral_overflow_drops_oldest(mock_ws):
     conn = Connection(mock_ws, uuid.uuid4(), "conn-1", maxsize=2)
@@ -142,3 +142,49 @@ def test_coalesce_contiguous_draw_updates():
     assert len(merged.payload.append) == 2
     assert merged.payload.append[0].lat == 1.0
     assert merged.payload.append[1].lat == 2.0
+
+
+def test_coalesce_different_users_same_shape_id():
+    manager = WebSocketManager()
+    uid1 = uuid.uuid4()
+    uid2 = uuid.uuid4()
+    shape_id = "shared-shape-id"
+
+    batch = [
+        RemoteDrawMessage(payload=RemoteDrawPayload(
+            userId=uid1, shapeId=shape_id, phase="update", seq=1, fromIndex=0,
+            append=[Coordinate(lat=1.0, lng=1.0)]
+        )),
+        RemoteDrawMessage(payload=RemoteDrawPayload(
+            userId=uid2, shapeId=shape_id, phase="update", seq=1, fromIndex=0,
+            append=[Coordinate(lat=2.0, lng=2.0)]
+        )),
+    ]
+
+    coalesced = manager._coalesce(batch)
+    assert len(coalesced) == 2
+    assert coalesced[0].payload.userId == uid1
+    assert coalesced[1].payload.userId == uid2
+
+
+@pytest.mark.asyncio
+async def test_disconnect_user(mock_ws):
+    manager = WebSocketManager()
+    uid1 = uuid.uuid4()
+    uid2 = uuid.uuid4()
+
+    conn1 = await manager.connect(mock_ws, uid1, "conn-1")
+    conn2 = await manager.connect(mock_ws, uid1, "conn-2")
+    conn3 = await manager.connect(mock_ws, uid2, "conn-3")
+
+    await manager.disconnect_user(uid1)
+
+    assert conn1.closed is True
+    assert conn2.closed is True
+    assert conn3.closed is False
+    assert "conn-1" not in manager.active_connections
+    assert "conn-2" not in manager.active_connections
+    assert "conn-3" in manager.active_connections
+    assert len(manager.get_user_connections(uid1)) == 0
+    assert len(manager.get_user_connections(uid2)) == 1
+

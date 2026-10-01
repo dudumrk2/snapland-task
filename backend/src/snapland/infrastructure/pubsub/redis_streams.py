@@ -71,7 +71,7 @@ class RedisEventStream(IEventStream, IEventPublisher):
         await self.redis.xtrim(self.stream_key, maxlen=10000, approximate=True)
         return msg_id.decode("utf-8") if isinstance(msg_id, bytes) else str(msg_id)
 
-    async def read_since(self, last_id: str, limit: int = 150) -> CatchUp:
+    async def read_since(self, last_id: str, limit: int = 500) -> CatchUp:
         # Validate last_id format
         if not last_id or not re.match(r"^\d+-\d+$", last_id):
             return CatchUp(events=[], resync_required=True)
@@ -81,7 +81,13 @@ class RedisEventStream(IEventStream, IEventPublisher):
         except Exception:
             stream_info = None
 
-        if last_id != "0-0" and stream_info and "first-entry" in stream_info and stream_info["first-entry"]:
+        if stream_info is None:
+            # Stream does not exist yet
+            if last_id != "0-0":
+                return CatchUp(events=[], resync_required=True)
+            return CatchUp(events=[], resync_required=False)
+
+        if last_id != "0-0" and "first-entry" in stream_info and stream_info["first-entry"]:
             first_entry_id = stream_info["first-entry"][0]
             if isinstance(first_entry_id, bytes):
                 first_entry_id = first_entry_id.decode("utf-8")
@@ -117,34 +123,38 @@ class RedisEventStream(IEventStream, IEventPublisher):
         return CatchUp(events=events, resync_required=False)
 
     async def follow(self) -> AsyncIterator[tuple[str, ServerMessage]]:
-        last_id = "$"
+        try:
+            stream_info = await self.redis.xinfo_stream(self.stream_key)
+            last_gen = stream_info.get("last-generated-id") or stream_info.get(b"last-generated-id")
+            if last_gen:
+                last_id = last_gen.decode("utf-8") if isinstance(last_gen, bytes) else str(last_gen)
+            else:
+                last_id = "0-0"
+        except Exception:
+            last_id = "0-0"
+
         while True:
-            try:
-                raw_res: Any = await self.redis.xread({self.stream_key: last_id}, block=1000)
-                if not raw_res:
-                    await asyncio.sleep(0.05)
-                    continue
-                if isinstance(raw_res, list):
-                    for stream_item in raw_res:
-                        messages = stream_item[1] if isinstance(stream_item, (list, tuple)) and len(stream_item) > 1 else []
-                        for msg_entry in messages:
-                            if not isinstance(msg_entry, (list, tuple)) or len(msg_entry) < 2:
-                                continue
-                            msg_id, fields = msg_entry[0], msg_entry[1]
-                            if not isinstance(fields, dict):
-                                continue
-                            msg_id_str = msg_id.decode("utf-8") if isinstance(msg_id, bytes) else str(msg_id)
-                            last_id = msg_id_str
-                            payload = fields.get(b"payload") or fields.get("payload")
-                            if payload:
-                                try:
-                                    msg = server_message_adapter.validate_json(payload)
-                                    if hasattr(msg, "eventId"):
-                                        msg.eventId = msg_id_str
-                                    yield (msg_id_str, msg)
-                                except Exception:
-                                    pass
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                await asyncio.sleep(0.5)
+            raw_res: Any = await self.redis.xread({self.stream_key: last_id}, block=1000)
+            if not raw_res:
+                await asyncio.sleep(0.05)
+                continue
+            if isinstance(raw_res, list):
+                for stream_item in raw_res:
+                    messages = stream_item[1] if isinstance(stream_item, (list, tuple)) and len(stream_item) > 1 else []
+                    for msg_entry in messages:
+                        if not isinstance(msg_entry, (list, tuple)) or len(msg_entry) < 2:
+                            continue
+                        msg_id, fields = msg_entry[0], msg_entry[1]
+                        if not isinstance(fields, dict):
+                            continue
+                        msg_id_str = msg_id.decode("utf-8") if isinstance(msg_id, bytes) else str(msg_id)
+                        last_id = msg_id_str
+                        payload = fields.get(b"payload") or fields.get("payload")
+                        if payload:
+                            try:
+                                msg = server_message_adapter.validate_json(payload)
+                                if hasattr(msg, "eventId"):
+                                    msg.eventId = msg_id_str
+                                yield (msg_id_str, msg)
+                            except Exception:
+                                pass

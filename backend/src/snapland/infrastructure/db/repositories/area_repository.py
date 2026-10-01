@@ -172,7 +172,7 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
         )
         await self.session.execute(audit_stmt)
         
-        await self.session.flush()
+        await self.session.commit()
         
         return Area(
             id=area.id,
@@ -262,7 +262,7 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
             created_at=datetime.fromisoformat(area.updated_at) if isinstance(area.updated_at, str) else area.updated_at
         )
         await self.session.execute(audit_stmt)
-        await self.session.flush()
+        await self.session.commit()
         
         return ret_area
 
@@ -309,5 +309,5 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
         )
         await self.session.execute(audit_stmt)
         
-        await self.session.flush()
+        await self.session.commit()
         return True

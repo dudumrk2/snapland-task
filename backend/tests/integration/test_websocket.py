@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from main import app
+from snapland.api.websocket.manager import WebSocketManager
 from snapland.api.websocket.route import manager as ws_manager
 from snapland.infrastructure.cache.cache_repository import CacheRepository
 from snapland.infrastructure.pubsub.redis_presence import RedisPresenceStore
@@ -14,13 +15,27 @@ from snapland.infrastructure.pubsub.redis_pubsub import RedisEphemeralBus
 from snapland.infrastructure.pubsub.redis_streams import RedisEventStream
 
 
+import asyncio
+import threading
+
+
 class ThreadSafeFakeRedisProxy:
     def __init__(self, server: fakeredis.FakeServer):
         self._server = server
-        self._redis = fakeredis.aioredis.FakeRedis(server=self._server, decode_responses=True)
+        self._local = threading.local()
+
+    def _get_redis(self):
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if not hasattr(self._local, "redis") or getattr(self._local, "loop", None) is not loop:
+            self._local.loop = loop
+            self._local.redis = fakeredis.aioredis.FakeRedis(server=self._server, decode_responses=True)
+        return self._local.redis
 
     def __getattr__(self, name: str):
-        return getattr(self._redis, name)
+        return getattr(self._get_redis(), name)
 
 
 @pytest.fixture
@@ -48,7 +63,7 @@ def ws_client():
         app.state.presence_store = RedisPresenceStore(async_redis)
         app.state.event_stream = RedisEventStream(async_redis)
         app.state.ephemeral_bus = RedisEphemeralBus(async_redis)
-        app.state.ws_manager = ws_manager
+        app.state.ws_manager = WebSocketManager()
 
         with TestClient(app) as client:
             yield client, sync_redis
@@ -240,3 +255,31 @@ def test_ws_catchup_resync_required(ws_client):
         frame = json.loads(ws.receive_text())
         types = [m["type"] for m in frame]
         assert "RESYNC_REQUIRED" in types
+
+
+def test_ws_max_connections_per_user_cap(ws_client):
+    client, sync_redis = ws_client
+    user_id = str(uuid.uuid4())
+    connections = []
+
+    try:
+        for i in range(5):
+            t = f"ticket-cap-{i}"
+            sync_redis.set(f"ws_ticket:{t}", user_id, ex=30)
+            ws = client.websocket_connect(f"/ws?ticket={t}")
+            ws.__enter__()
+            connections.append(ws)
+
+        # 6th connection must be rejected with 4003
+        t6 = "ticket-cap-overflow"
+        sync_redis.set(f"ws_ticket:{t6}", user_id, ex=30)
+        with pytest.raises(WebSocketDisconnect) as exc:
+            with client.websocket_connect(f"/ws?ticket={t6}") as ws6:
+                ws6.receive_text()
+        assert exc.value.code == 4003
+    finally:
+        for ws in connections:
+            try:
+                ws.__exit__(None, None, None)
+            except Exception:
+                pass

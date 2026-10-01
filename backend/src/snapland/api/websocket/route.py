@@ -1,14 +1,16 @@
 import asyncio
-import logging
 import uuid
 from typing import Optional
 
+import structlog
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from snapland.api.websocket.handlers import dispatch_message
 from snapland.api.websocket.manager import WebSocketManager
 from snapland.config import settings
 from snapland.core.domain.ws_messages import (
+    ErrorMessage,
+    ErrorPayload,
     PresenceSnapshotMessage,
     PresenceSnapshotPayload,
     PresenceUser,
@@ -21,11 +23,9 @@ from snapland.core.domain.ws_messages import (
 )
 from snapland.core.interfaces.realtime import Envelope
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 router = APIRouter()
-
-# Global manager instance for this FastAPI worker
 manager = WebSocketManager()
 
 
@@ -36,8 +36,6 @@ async def websocket_endpoint(
     lastEventId: Optional[str] = None,
 ) -> None:
     # 1. Origin check before accepting connection
-    # Note: When WS_ALLOWED_ORIGINS is "*", any Origin (including None/curl) is permitted
-    # for development convenience. For production, strict comma-separated origins must be configured.
     origin = websocket.headers.get("origin")
     allowed_origins = settings.WS_ALLOWED_ORIGINS
     if allowed_origins != "*":
@@ -63,9 +61,11 @@ async def websocket_endpoint(
         await websocket.close(code=4001)
         return
 
-    # 3. Connect to manager (registered immediately to live broadcast pool)
+    # 3. Connect to manager (initially unregistered from live broadcast pool per HLD §9.6.3)
+    active_manager: WebSocketManager = getattr(websocket.app.state, "ws_manager", None) or manager
+
     conn_id = str(uuid.uuid4())
-    conn = await manager.connect(websocket, user_id, conn_id, register=True)
+    conn = await active_manager.connect(websocket, user_id, conn_id, register=False)
     if not conn:
         return
 
@@ -113,7 +113,7 @@ async def websocket_endpoint(
                             user=PresenceUser(userId=user_id, displayName=display_name)
                         )
                     )
-                    await manager.broadcast_ephemeral(joined_msg, exclude_conn_id=conn_id)
+                    await active_manager.broadcast_ephemeral(joined_msg, exclude_conn_id=conn_id)
                     if ephemeral_bus:
                         await ephemeral_bus.publish(Envelope(origin=settings.INSTANCE_ID, message=joined_msg))
             except Exception as e:
@@ -124,23 +124,28 @@ async def websocket_endpoint(
             event_stream = getattr(websocket.app.state, "event_stream", None)
             if event_stream:
                 try:
-                    catchup = await event_stream.read_since(lastEventId)
+                    catchup = await event_stream.read_since(lastEventId, limit=500)
                     if catchup.resync_required:
                         await conn.enqueue(
                             ResyncRequiredMessage(payload=ResyncRequiredPayload(reason="stream_trimmed"))
                         )
                     else:
-                        for event_id, msg in reversed(catchup.events):
+                        for event_id, msg in catchup.events:
                             if hasattr(msg, "eventId"):
                                 msg.eventId = event_id
-                            conn.queue.push_front(msg)
+                            await conn.enqueue(msg)
                 except Exception as e:
                     logger.warning("Catch-up replay error", exc_info=e)
 
-        # 8. Connection TTL Task: close with code 4401 after 15 min (access token lifespan)
+        # 7. Register connection into live broadcast pool after catch-up is queued
+        active_manager.register(conn)
+
+        # 8. Connection TTL Task: close with code 4401 after token lifespan
+        ttl_seconds = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+
         async def connection_ttl_timer():
             try:
-                await asyncio.sleep(15 * 60)
+                await asyncio.sleep(ttl_seconds)
                 if not conn.closed:
                     conn.closed = True
                     await websocket.close(code=4401, reason="token_expired")
@@ -152,22 +157,42 @@ async def websocket_endpoint(
         # 9. Main receive loop
         while not conn.closed:
             data = await websocket.receive_text()
-            await dispatch_message(conn, data, websocket.app.state)
+            # Inbound 64 KB limit check
+            if len(data.encode("utf-8")) > 65536:
+                conn.closed = True
+                await websocket.close(code=1009, reason="Message too large")
+                break
+
+            try:
+                await dispatch_message(conn, data, websocket.app.state)
+            except Exception as e:
+                logger.warning("Message dispatch exception", conn_id=conn.conn_id, error=str(e))
+                await conn.enqueue(
+                    ErrorMessage(payload=ErrorPayload(code="INTERNAL_ERROR", message="Internal processing error"))
+                )
+
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        logger.debug("WebSocket receive error", exc_info=e)
+        logger.debug("WebSocket receive loop closed", exc_info=e)
     finally:
         if ttl_task and not ttl_task.done():
             ttl_task.cancel()
-        await manager.disconnect(conn_id)
-        if presence_store:
-            try:
-                is_last = await presence_store.remove(user_id, conn_id)
-                if is_last:
-                    left_msg = UserLeftMessage(payload=UserLeftPayload(userId=user_id))
-                    await manager.broadcast_ephemeral(left_msg)
-                    if ephemeral_bus:
-                        await ephemeral_bus.publish(Envelope(origin=settings.INSTANCE_ID, message=left_msg))
-            except Exception as e:
-                logger.warning("Presence error on disconnect", exc_info=e)
+
+        async def _disconnect_cleanup():
+            await active_manager.disconnect(conn_id)
+            if presence_store:
+                try:
+                    is_last = await presence_store.remove(user_id, conn_id)
+                    if is_last:
+                        left_msg = UserLeftMessage(payload=UserLeftPayload(userId=user_id))
+                        await active_manager.broadcast_ephemeral(left_msg)
+                        if ephemeral_bus:
+                            await ephemeral_bus.publish(Envelope(origin=settings.INSTANCE_ID, message=left_msg))
+                except Exception as e:
+                    logger.warning("Presence error on disconnect", exc_info=e)
+
+        try:
+            await asyncio.shield(_disconnect_cleanup())
+        except asyncio.CancelledError:
+            await _disconnect_cleanup()

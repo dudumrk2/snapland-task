@@ -86,12 +86,27 @@ async def refresh(
 
 @router.post("/logout")
 async def logout(
+    request: Request,
     response: Response,
     refresh_token: str = Cookie(None),
     auth_svc: IAuthService = Depends(get_auth_service)
 ):
     if refresh_token:
+        user_id = None
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            try:
+                from snapland.config import settings
+                user_id = auth_svc.verify_access_token(auth_header.split(" ")[1], settings.JWT_PUBLIC_KEY)
+            except Exception:
+                pass
+
         await auth_svc.revoke_token(refresh_token)
+
+        if user_id:
+            ws_manager = getattr(request.app.state, "ws_manager", None)
+            if ws_manager:
+                await ws_manager.disconnect_user(user_id)
     response.delete_cookie("refresh_token", path="/api/v1/auth")
     return {"status": "ok"}
 

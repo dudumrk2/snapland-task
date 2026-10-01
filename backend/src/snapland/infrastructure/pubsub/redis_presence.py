@@ -99,7 +99,9 @@ class RedisPresenceStore(IPresenceStore):
         if not expired:
             return []
 
-        await self.redis.zrem("presence:global", *expired)
+        rem_res = await self.redis.zrem("presence:global", *expired)
+        if not rem_res:
+            return []
 
         expired_by_user: dict[str, list[str]] = {}
         for member in expired:

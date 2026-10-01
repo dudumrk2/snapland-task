@@ -1,5 +1,6 @@
 import asyncio
 import collections
+import time
 from typing import Any, Dict, Optional
 from uuid import UUID
 
@@ -99,10 +100,19 @@ class Connection:
         self.closed = False
         self.dropped_count = 0
         self.user: Optional[User] = None
+        self.last_cursor_time: float = 0.0
+        self.last_draw_stream_rate_limit_error: float = 0.0
+        self.last_received_time: float = time.monotonic()
+        self.seen_event_ids: collections.deque[str] = collections.deque(maxlen=500)
 
     async def enqueue(self, message: ServerMessage) -> None:
         if self.closed:
             return
+
+        if hasattr(message, "eventId") and message.eventId:
+            if message.eventId in self.seen_event_ids:
+                return
+            self.seen_event_ids.append(message.eventId)
 
         is_durable = message.type in DURABLE_TYPES
 
@@ -129,14 +139,15 @@ class Connection:
 
 
 class WebSocketManager:
-    MAX_CONNECTIONS_PER_USER = 10
+    MAX_CONNECTIONS_PER_USER = 5
 
     def __init__(self):
+        self.all_connections: Dict[str, Connection] = {}
         self.active_connections: Dict[str, Connection] = {}
 
     @property
     def total_dropped_count(self) -> int:
-        return sum(c.dropped_count for c in self.active_connections.values())
+        return sum(c.dropped_count for c in self.all_connections.values())
 
     async def connect(
         self, websocket: WebSocket, user_id: UUID, conn_id: str, register: bool = True
@@ -144,11 +155,12 @@ class WebSocketManager:
         user_conns = self.get_user_connections(user_id)
         if len(user_conns) >= self.MAX_CONNECTIONS_PER_USER:
             await websocket.accept()
-            await websocket.close(code=4008, reason="too_many_connections")
+            await websocket.close(code=4003, reason="too_many_connections")
             return None
 
         await websocket.accept()
         conn = Connection(websocket, user_id, conn_id)
+        self.all_connections[conn_id] = conn
         conn.writer_task = asyncio.create_task(self._writer(conn))
         if register:
             self.active_connections[conn_id] = conn
@@ -159,6 +171,7 @@ class WebSocketManager:
             self.active_connections[conn.conn_id] = conn
 
     async def disconnect(self, conn_id: str):
+        self.all_connections.pop(conn_id, None)
         conn = self.active_connections.pop(conn_id, None)
         if conn:
             conn.closed = True
@@ -170,6 +183,15 @@ class WebSocketManager:
                     pass
                 except Exception as e:
                     logger.debug("Writer task error on disconnect", exc_info=e)
+
+    async def disconnect_user(self, user_id: UUID):
+        for conn in list(self.all_connections.values()):
+            if conn.user_id == user_id:
+                try:
+                    await conn.websocket.close(code=4401, reason="logged_out")
+                except Exception:
+                    pass
+                await self.disconnect(conn.conn_id)
 
     async def _writer(self, conn: Connection):
         try:
@@ -213,7 +235,7 @@ class WebSocketManager:
     def _coalesce(self, batch: list[ServerMessage]) -> list[ServerMessage]:
         result: list[ServerMessage] = []
         cursor_indices: dict[UUID, int] = {}
-        pending_draw_indices: dict[str, int] = {}
+        pending_draw_indices: dict[tuple[UUID, str], int] = {}
 
         for msg in batch:
             if msg.type == "CURSOR_MOVE":
@@ -226,9 +248,9 @@ class WebSocketManager:
                     result.append(msg.model_copy(deep=True))
 
             elif msg.type == "REMOTE_DRAW":
-                shape_id = msg.payload.shapeId
-                if msg.payload.phase == "update" and shape_id in pending_draw_indices:
-                    idx = pending_draw_indices[shape_id]
+                draw_key = (msg.payload.userId, msg.payload.shapeId)
+                if msg.payload.phase == "update" and draw_key in pending_draw_indices:
+                    idx = pending_draw_indices[draw_key]
                     prev = result[idx]
                     if (
                         isinstance(prev, RemoteDrawMessage)
@@ -252,13 +274,13 @@ class WebSocketManager:
                         )
                         continue
                     else:
-                        del pending_draw_indices[shape_id]
-                elif shape_id in pending_draw_indices:
-                    del pending_draw_indices[shape_id]
+                        pending_draw_indices.pop(draw_key, None)
+                else:
+                    pending_draw_indices.pop(draw_key, None)
 
                 msg_copy = msg.model_copy(deep=True)
                 if msg.payload.phase == "update":
-                    pending_draw_indices[shape_id] = len(result)
+                    pending_draw_indices[draw_key] = len(result)
                 result.append(msg_copy)
 
             else:
@@ -276,4 +298,4 @@ class WebSocketManager:
             await conn.enqueue(message)
 
     def get_user_connections(self, user_id: UUID) -> list[Connection]:
-        return [c for c in self.active_connections.values() if c.user_id == user_id]
+        return [c for c in self.all_connections.values() if c.user_id == user_id and not c.closed]
