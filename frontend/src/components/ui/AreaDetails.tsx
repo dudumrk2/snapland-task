@@ -30,12 +30,17 @@ export const AreaDetails: React.FC<AreaDetailsProps> = ({ area, onClose }) => {
   const isEditingThis = editingAreaId === area.id;
 
   useEffect(() => {
-    if (showHistory) {
-      setIsLoadingHistory(true);
-      fetchHistory(area.id).finally(() => {
+    if (!showHistory) return;
+    let cancelled = false;
+    setIsLoadingHistory(true);
+    fetchHistory(area.id).finally(() => {
+      if (!cancelled) {
         setIsLoadingHistory(false);
-      });
-    }
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [showHistory, area.id, fetchHistory]);
 
   const handleSaveEdit = async () => {

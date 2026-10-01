@@ -37,7 +37,6 @@ export interface AreasState {
   setFetching: (isFetching: boolean) => void;
   setSaving: (isSaving: boolean) => void;
   setDeleting: (isDeleting: boolean) => void;
-  setLoading: (isLoading: boolean) => void;
   setError: (error: string | null) => void;
 }
 
@@ -137,7 +136,6 @@ export const useAreasStore = create<AreasState>((set) => ({
       isDeleting,
       isLoading: isDeleting || state.isFetching || state.isSaving,
     })),
-  setLoading: (isLoading) => set({ isLoading }),
   setError: (error) =>
     set({
       error,

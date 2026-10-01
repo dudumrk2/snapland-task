@@ -4,6 +4,7 @@ import type {
   WsMessage,
   WsPayloadMap,
   PresenceUser,
+  Coordinate,
 } from '@snapland/shared-types';
 import {
   IWebSocketService,
@@ -76,6 +77,29 @@ export class MockWebSocketService implements IWebSocketService {
       case 'DRAW_COMMIT': {
         const eventId = `${Date.now()}-0`;
         this._lastEventId = eventId;
+        const commitPayload = message.payload as {
+          shapeId: string;
+          name: string;
+          points: Coordinate[];
+        };
+        this.dispatch(
+          'AREA_SAVED',
+          {
+            area: {
+              id: `area-${commitPayload.shapeId}`,
+              name: commitPayload.name,
+              coordinates: commitPayload.points,
+              areaKm2: 0,
+              version: 1,
+              createdBy: 'currentUser',
+              lastEditedBy: 'currentUser',
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            },
+            shapeId: commitPayload.shapeId,
+          },
+          eventId
+        );
         break;
       }
       case 'DRAW_CANCEL': {
