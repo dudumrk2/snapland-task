@@ -18,6 +18,9 @@ export interface AreasState {
   editedCoordinates: Coordinate[] | null;
   history: AreaVersion[];
   conflict: AreaConflict | null;
+  isFetching: boolean;
+  isSaving: boolean;
+  isDeleting: boolean;
   isLoading: boolean;
   error: string | null;
 
@@ -31,6 +34,9 @@ export interface AreasState {
   cancelEditing: () => void;
   setConflict: (conflict: AreaConflict | null) => void;
   setHistory: (history: AreaVersion[]) => void;
+  setFetching: (isFetching: boolean) => void;
+  setSaving: (isSaving: boolean) => void;
+  setDeleting: (isDeleting: boolean) => void;
   setLoading: (isLoading: boolean) => void;
   setError: (error: string | null) => void;
 }
@@ -42,17 +48,31 @@ export const useAreasStore = create<AreasState>((set) => ({
   editedCoordinates: null,
   history: [],
   conflict: null,
+  isFetching: false,
+  isSaving: false,
+  isDeleting: false,
   isLoading: false,
   error: null,
 
-  setAreas: (areas) => set({ areas, isLoading: false, error: null }),
+  setAreas: (areas) =>
+    set((state) => ({
+      areas,
+      isFetching: false,
+      isLoading: state.isSaving || state.isDeleting,
+      error: null,
+    })),
   addArea: (area) =>
     set((state) => {
       const exists = state.areas.some((a) => a.id === area.id);
       const updated = exists
         ? state.areas.map((a) => (a.id === area.id ? area : a))
         : [area, ...state.areas];
-      return { areas: updated, isLoading: false, error: null };
+      return {
+        areas: updated,
+        isSaving: false,
+        isLoading: state.isFetching || state.isDeleting,
+        error: null,
+      };
     }),
   updateArea: (area) =>
     set((state) => {
@@ -62,7 +82,8 @@ export const useAreasStore = create<AreasState>((set) => ({
         editingAreaId: state.editingAreaId === area.id ? null : state.editingAreaId,
         editedCoordinates:
           state.editingAreaId === area.id ? null : state.editedCoordinates,
-        isLoading: false,
+        isSaving: false,
+        isLoading: state.isFetching || state.isDeleting,
         error: null,
       };
     }),
@@ -73,7 +94,8 @@ export const useAreasStore = create<AreasState>((set) => ({
       editingAreaId: state.editingAreaId === id ? null : state.editingAreaId,
       editedCoordinates:
         state.editingAreaId === id ? null : state.editedCoordinates,
-      isLoading: false,
+      isDeleting: false,
+      isLoading: state.isFetching || state.isSaving,
       error: null,
     })),
   selectArea: (id) =>
@@ -99,7 +121,29 @@ export const useAreasStore = create<AreasState>((set) => ({
       editedCoordinates: null,
     }),
   setConflict: (conflict) => set({ conflict }),
-  setHistory: (history) => set({ history, isLoading: false, error: null }),
+  setHistory: (history) => set({ history, error: null }),
+  setFetching: (isFetching) =>
+    set((state) => ({
+      isFetching,
+      isLoading: isFetching || state.isSaving || state.isDeleting,
+    })),
+  setSaving: (isSaving) =>
+    set((state) => ({
+      isSaving,
+      isLoading: isSaving || state.isFetching || state.isDeleting,
+    })),
+  setDeleting: (isDeleting) =>
+    set((state) => ({
+      isDeleting,
+      isLoading: isDeleting || state.isFetching || state.isSaving,
+    })),
   setLoading: (isLoading) => set({ isLoading }),
-  setError: (error) => set({ error, isLoading: false }),
+  setError: (error) =>
+    set({
+      error,
+      isLoading: false,
+      isFetching: false,
+      isSaving: false,
+      isDeleting: false,
+    }),
 }));

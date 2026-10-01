@@ -3,7 +3,7 @@ import type {
   RegisterRequest,
   TokenResponse,
 } from '@snapland/shared-types';
-import { IAuthApi } from '../interfaces/IAuthApi';
+import { IAuthApi, AuthUser } from '../interfaces/IAuthApi';
 
 interface StoredUser {
   id: string;
@@ -27,6 +27,30 @@ export class MockAuthApi implements IAuthApi {
       password: 'password123',
       displayName: 'Test User',
     });
+
+    // In browser mock dev environment: if not explicitly logged out and no session exists,
+    // seed default mock session in localStorage so mock/e2e flows start with an active session.
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const isExplicitlyLoggedOut =
+        window.localStorage.getItem(STORAGE_LOGGED_OUT_KEY) === 'true';
+      const existingSession = window.localStorage.getItem(STORAGE_SESSION_KEY);
+      if (!isExplicitlyLoggedOut && !existingSession) {
+        const defaultUser = this.users.get('test@example.com');
+        if (defaultUser) {
+          window.localStorage.setItem(
+            STORAGE_SESSION_KEY,
+            JSON.stringify({
+              user: {
+                id: defaultUser.id,
+                email: defaultUser.email,
+                displayName: defaultUser.displayName,
+              },
+              accessToken: `mock-jwt-${defaultUser.id}`,
+            })
+          );
+        }
+      }
+    }
   }
 
   private async delay(): Promise<void> {
@@ -101,9 +125,6 @@ export class MockAuthApi implements IAuthApi {
   async refresh(): Promise<TokenResponse> {
     await this.delay();
     if (typeof window !== 'undefined' && window.localStorage) {
-      const isExplicitlyLoggedOut =
-        window.localStorage.getItem(STORAGE_LOGGED_OUT_KEY) === 'true';
-
       const stored = window.localStorage.getItem(STORAGE_SESSION_KEY);
       if (stored) {
         try {
@@ -119,35 +140,13 @@ export class MockAuthApi implements IAuthApi {
           // ignore corrupted json
         }
       }
-
-      // If user is directly accessing root / and hasn't explicitly logged out, provide default mock session
-      const isRootPath = window.location.pathname === '/' || window.location.pathname === '';
-      if (isRootPath && !isExplicitlyLoggedOut) {
-        const defaultUser = this.users.get('test@example.com')!;
-        const tokenResponse: TokenResponse = {
-          accessToken: `mock-jwt-${defaultUser.id}-${Date.now()}`,
-          tokenType: 'Bearer',
-          expiresIn: 900,
-        };
-        window.localStorage.setItem(
-          STORAGE_SESSION_KEY,
-          JSON.stringify({
-            user: {
-              id: defaultUser.id,
-              email: defaultUser.email,
-              displayName: defaultUser.displayName,
-            },
-            accessToken: tokenResponse.accessToken,
-          })
-        );
-        return tokenResponse;
-      }
     }
 
     throw new Error('No active session to refresh');
   }
 
-  getCurrentUser(): { id: string; email: string; displayName: string } | null {
+  async getCurrentUser(): Promise<AuthUser | null> {
+    await this.delay();
     if (typeof window !== 'undefined' && window.localStorage) {
       const stored = window.localStorage.getItem(STORAGE_SESSION_KEY);
       if (stored) {

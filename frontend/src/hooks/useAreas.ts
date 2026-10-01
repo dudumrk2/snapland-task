@@ -17,6 +17,9 @@ export function useAreas() {
     editedCoordinates,
     history,
     conflict,
+    isFetching,
+    isSaving,
+    isDeleting,
     isLoading,
     error,
     setAreas,
@@ -29,7 +32,9 @@ export function useAreas() {
     cancelEditing,
     setConflict,
     setHistory,
-    setLoading,
+    setFetching,
+    setSaving,
+    setDeleting,
     setError,
   } = useAreasStore();
 
@@ -39,7 +44,7 @@ export function useAreas() {
   const fetchAreasInBounds = useCallback(
     async (bounds: BoundingBox, zoom: number) => {
       const requestId = ++fetchRequestIdRef.current;
-      setLoading(true);
+      setFetching(true);
       setError(null);
       try {
         const page = await areaApi.getAreasInBounds(bounds, zoom);
@@ -58,42 +63,50 @@ export function useAreas() {
         } else {
           setAreas(page.areas);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (requestId === fetchRequestIdRef.current) {
-          setError(err.message || 'Failed to fetch areas');
+          const msg = err instanceof Error ? err.message : 'Failed to fetch areas';
+          setError(msg);
+        }
+      } finally {
+        if (requestId === fetchRequestIdRef.current) {
+          setFetching(false);
         }
       }
     },
-    [areaApi, setAreas, setLoading, setError]
+    [areaApi, setAreas, setFetching, setError]
   );
 
   const createArea = useCallback(
     async (name: string, coordinates: Coordinate[]) => {
-      setLoading(true);
+      setSaving(true);
       setError(null);
       try {
         const newArea = await areaApi.createArea({ name, coordinates });
         addArea(newArea);
         selectArea(newArea.id);
         return newArea;
-      } catch (err: any) {
-        setError(err.message || 'Failed to create area');
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Failed to create area';
+        setError(msg);
         throw err;
+      } finally {
+        setSaving(false);
       }
     },
-    [areaApi, addArea, selectArea, setLoading, setError]
+    [areaApi, addArea, selectArea, setSaving, setError]
   );
 
   const updateArea = useCallback(
     async (id: string, req: UpdateAreaRequest) => {
-      setLoading(true);
+      setSaving(true);
       setError(null);
       try {
         const updated = await areaApi.updateArea(id, req);
         updateStoreArea(updated);
         setConflict(null);
         return updated;
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (err instanceof ConflictError) {
           const localArea = areas.find((a) => a.id === id);
           if (localArea) {
@@ -108,26 +121,32 @@ export function useAreas() {
             });
           }
         }
-        setError(err.message || 'Failed to update area');
+        const msg = err instanceof Error ? err.message : 'Failed to update area';
+        setError(msg);
         throw err;
+      } finally {
+        setSaving(false);
       }
     },
-    [areaApi, areas, updateStoreArea, setConflict, setLoading, setError]
+    [areaApi, areas, updateStoreArea, setConflict, setSaving, setError]
   );
 
   const deleteArea = useCallback(
     async (id: string) => {
-      setLoading(true);
+      setDeleting(true);
       setError(null);
       try {
         await areaApi.deleteArea(id);
         deleteStoreArea(id);
-      } catch (err: any) {
-        setError(err.message || 'Failed to delete area');
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Failed to delete area';
+        setError(msg);
         throw err;
+      } finally {
+        setDeleting(false);
       }
     },
-    [areaApi, deleteStoreArea, setLoading, setError]
+    [areaApi, deleteStoreArea, setDeleting, setError]
   );
 
   const fetchHistory = useCallback(
@@ -197,6 +216,9 @@ export function useAreas() {
     editedCoordinates,
     history,
     conflict,
+    isFetching,
+    isSaving,
+    isDeleting,
     isLoading,
     error,
     fetchAreasInBounds,

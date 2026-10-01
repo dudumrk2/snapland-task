@@ -17,7 +17,7 @@ export interface RouterProps {
  * Listens to popstate and maps pathname → page component.
  * Redirects unauthenticated users to /login and authenticated users away from /login using replaceState to avoid history traps.
  */
-export const Router: React.FC = () => {
+export const Router: React.FC<RouterProps> = () => {
   const [pathname, setPathname] = useState(
     typeof window !== 'undefined' ? window.location.pathname : ROUTES.MAP
   );

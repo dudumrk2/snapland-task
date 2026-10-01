@@ -91,6 +91,7 @@ export const AreaDetails: React.FC<AreaDetailsProps> = ({ area, onClose }) => {
         <button
           type="button"
           onClick={onClose}
+          aria-label="Close details"
           style={{
             border: 'none',
             background: 'none',

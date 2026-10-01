@@ -33,6 +33,7 @@ export const Toast: React.FC<ToastProps> = ({ message, onClose }) => {
         <button
           type="button"
           onClick={onClose}
+          aria-label="Close notification"
           style={{
             background: 'none',
             border: 'none',

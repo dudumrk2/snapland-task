@@ -2,16 +2,11 @@ import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import { useAreasStore } from '../../store/areasStore';
 import { formatArea } from '../../utils/areaCalculation';
+import { escapeHtml } from '../../utils/escapeHtml';
 
 export interface AreaOverlayProps {
   map: L.Map | null;
   isDrawing?: boolean;
-}
-
-function escapeHtml(str: string): string {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
 }
 
 export const AreaOverlay: React.FC<AreaOverlayProps> = ({ map, isDrawing = false }) => {

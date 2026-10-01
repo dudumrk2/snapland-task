@@ -1,15 +1,10 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import { useCollaborationStore } from '../../store/collaborationStore';
+import { escapeHtml } from '../../utils/escapeHtml';
 
 export interface CollaborationLayerProps {
   map: L.Map | null;
-}
-
-function escapeHtml(str: string): string {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
 }
 
 export const CollaborationLayer: React.FC<CollaborationLayerProps> = ({

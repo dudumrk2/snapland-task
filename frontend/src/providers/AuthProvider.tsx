@@ -24,9 +24,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     authApi
       .refresh()
-      .then((tokens) => {
-        // Fallback user details for session restore
-        const user = { id: 'user-1', email: 'test@example.com', displayName: 'Test User' };
+      .then(async (tokens) => {
+        const user = (await authApi.getCurrentUser()) || {
+          id: 'user-default-1',
+          email: 'test@example.com',
+          displayName: 'Test User',
+        };
         useAuthStore.getState().setSession(user, tokens.accessToken);
       })
       .catch(() => {

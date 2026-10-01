@@ -5,9 +5,10 @@ import type {
   WsMessage,
 } from '@snapland/shared-types';
 import { useCollaborationStore } from '../store/collaborationStore';
-import { useAreasStore } from '../store/areasStore';
 import { useWebSocketContext } from '../providers/WebSocketProvider';
 import { useApi } from '../providers/ApiProvider';
+
+import { setupWebSocketSubscriptions } from '../services/realtime/wsSubscriptions';
 
 export function useWebSocket(autoConnect = true) {
   const { wsService, authApi } = useApi();
@@ -23,46 +24,8 @@ export function useWebSocket(autoConnect = true) {
   useEffect(() => {
     if (wsContext) return;
 
-    const unsubState = wsService.onStateChange((state) => {
-      useCollaborationStore.getState().setConnectionState(state);
-    });
-
-    const unsubPresence = wsService.on('PRESENCE_SNAPSHOT', (payload) => {
-      useCollaborationStore.getState().setPresenceUsers(payload.users);
-    });
-
-    const unsubJoined = wsService.on('USER_JOINED', (payload) => {
-      useCollaborationStore.getState().addPresenceUser(payload);
-    });
-
-    const unsubLeft = wsService.on('USER_LEFT', (payload) => {
-      useCollaborationStore.getState().removePresenceUser(payload.userId);
-    });
-
-    const unsubCursor = wsService.on('CURSOR_MOVE', (payload) => {
-      useCollaborationStore.getState().updateRemoteCursor(payload);
-    });
-
-    const unsubDraw = wsService.on('REMOTE_DRAW', (payload) => {
-      useCollaborationStore.getState().handleRemoteDraw(payload);
-    });
-
-    const unsubAreaSaved = wsService.on('AREA_SAVED', (payload, eventId) => {
-      useAreasStore.getState().addArea(payload.area);
-      if (payload.shapeId) {
-        useCollaborationStore.getState().removeRemoteShape(payload.shapeId);
-      }
-      if (eventId) useCollaborationStore.getState().setLastEventId(eventId);
-    });
-
-    const unsubAreaUpdated = wsService.on('AREA_UPDATED', (payload, eventId) => {
-      useAreasStore.getState().updateArea(payload.area);
-      if (eventId) useCollaborationStore.getState().setLastEventId(eventId);
-    });
-
-    const unsubAreaDeleted = wsService.on('AREA_DELETED', (payload, eventId) => {
-      useAreasStore.getState().deleteArea(payload.areaId);
-      if (eventId) useCollaborationStore.getState().setLastEventId(eventId);
+    const cleanupSubscriptions = setupWebSocketSubscriptions(wsService, {
+      enableProactiveConflict: true,
     });
 
     if (autoConnect) {
@@ -72,15 +35,7 @@ export function useWebSocket(autoConnect = true) {
     }
 
     return () => {
-      unsubState();
-      unsubPresence();
-      unsubJoined();
-      unsubLeft();
-      unsubCursor();
-      unsubDraw();
-      unsubAreaSaved();
-      unsubAreaUpdated();
-      unsubAreaDeleted();
+      cleanupSubscriptions();
       if (autoConnect) {
         wsService.disconnect();
       }

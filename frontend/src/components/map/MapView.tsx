@@ -25,6 +25,9 @@ export const MapView: React.FC<MapViewProps> = ({
   const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
   const [layerManager, setLayerManager] = useState<LayerManager | null>(null);
 
+  const onToastRef = useRef(onToast);
+  onToastRef.current = onToast;
+
   const { fetchAreasInBounds } = useAreas();
   const { sendCursorMove } = useWebSocket();
 
@@ -45,7 +48,7 @@ export const MapView: React.FC<MapViewProps> = ({
     // Initialize LayerManager with fallback notification
     const lm = new LayerManager({
       onFallback: (reason) => {
-        if (onToast) onToast(reason);
+        onToastRef.current?.(reason);
       },
     });
     lm.initialize(map, 'osm');

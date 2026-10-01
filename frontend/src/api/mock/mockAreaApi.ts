@@ -50,7 +50,7 @@ export class MockAreaApi implements IAreaApi {
   private history: Map<string, AreaVersion[]> = new Map();
   private simulatedLatencyMs = 60;
 
-  constructor(initialAreas: Area[] = []) {
+  constructor(initialAreas: Area[] = INITIAL_AREAS) {
     initialAreas.forEach((area) => {
       this.areas.set(area.id, { ...area });
       this.history.set(area.id, [
@@ -87,7 +87,7 @@ export class MockAreaApi implements IAreaApi {
     }
 
     return {
-      areas: result.length > 0 ? result : Array.from(this.areas.values()),
+      areas: result,
       truncated: false,
     };
   }
