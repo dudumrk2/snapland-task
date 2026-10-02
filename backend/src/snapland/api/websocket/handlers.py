@@ -1,5 +1,5 @@
-from typing import Any, Optional
 import time
+from typing import Any, Optional
 
 import orjson
 import structlog
@@ -55,6 +55,9 @@ async def dispatch_message(conn: Connection, raw_data: str, app_state: Any) -> N
         return
 
     conn.last_received_time = time.monotonic()
+    if msg_type in ("PING", "PONG"):
+        return
+
     rate_limiter = getattr(app_state, "rate_limiter", None)
     ephemeral_bus = getattr(app_state, "ephemeral_bus", None)
     manager = getattr(app_state, "ws_manager", None)

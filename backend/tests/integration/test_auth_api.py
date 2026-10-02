@@ -82,6 +82,21 @@ def test_logout(auth_service_mock):
     assert response.json() == {"status": "ok"}
     auth_service_mock.revoke_token.assert_called_once_with("old_refresh")
 
+def test_logout_disconnects_websocket_via_revoked_token(auth_service_mock):
+    from unittest.mock import AsyncMock
+    target_user_id = uuid.uuid4()
+    auth_service_mock.revoke_token.return_value = target_user_id
+
+    mock_ws_mgr = AsyncMock()
+    app.state.ws_manager = mock_ws_mgr
+    mock_bus = AsyncMock()
+    app.state.ephemeral_bus = mock_bus
+
+    response = client.post("/api/v1/auth/logout", cookies={"refresh_token": "old_refresh"})
+    assert response.status_code == 200
+    mock_ws_mgr.disconnect_user.assert_called_once_with(target_user_id)
+    mock_bus.publish_control.assert_called_once_with({"type": "logout", "userId": str(target_user_id)})
+
 def test_ws_ticket(auth_service_mock):
     auth_service_mock.issue_ws_ticket.return_value = "ticket123"
     

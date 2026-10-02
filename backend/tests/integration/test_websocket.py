@@ -1,4 +1,6 @@
+import asyncio
 import json
+import threading
 import uuid
 
 import fakeredis.aioredis
@@ -8,15 +10,10 @@ from starlette.websockets import WebSocketDisconnect
 
 from main import app
 from snapland.api.websocket.manager import WebSocketManager
-from snapland.api.websocket.route import manager as ws_manager
 from snapland.infrastructure.cache.cache_repository import CacheRepository
 from snapland.infrastructure.pubsub.redis_presence import RedisPresenceStore
 from snapland.infrastructure.pubsub.redis_pubsub import RedisEphemeralBus
 from snapland.infrastructure.pubsub.redis_streams import RedisEventStream
-
-
-import asyncio
-import threading
 
 
 class ThreadSafeFakeRedisProxy:

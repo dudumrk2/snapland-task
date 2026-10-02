@@ -126,8 +126,8 @@ class Connection:
                 if WS_MESSAGES_DROPPED_TOTAL is not None:
                     WS_MESSAGES_DROPPED_TOTAL.labels(reason="queue_full").inc()
             else:
-                # Queue has only durables
-                if is_durable:
+                # Queue has only durables or protected messages
+                if is_durable or message.type in PROTECTED_TYPES:
                     self.closed = True
                     asyncio.create_task(self.websocket.close(code=1013))
                     return
@@ -174,8 +174,8 @@ class WebSocketManager:
             self.active_connections[conn.conn_id] = conn
 
     async def disconnect(self, conn_id: str):
-        self.all_connections.pop(conn_id, None)
-        conn = self.active_connections.pop(conn_id, None)
+        conn = self.all_connections.pop(conn_id, None)
+        self.active_connections.pop(conn_id, None)
         if conn:
             conn.closed = True
             if conn.writer_task:
@@ -197,32 +197,16 @@ class WebSocketManager:
                 await self.disconnect(conn.conn_id)
 
     async def _writer(self, conn: Connection):
-        PING_INTERVAL = 25.0   # send ping after this many seconds idle
-        PING_TIMEOUT = 10.0    # close if pong/frame not received within this time after ping
+        PING_INTERVAL = 25.0   # send keep-alive probe after this many seconds idle
 
         try:
             while not conn.closed:
                 try:
                     msg = await asyncio.wait_for(conn.queue.get(), timeout=PING_INTERVAL)
                 except asyncio.TimeoutError:
-                    # No message for PING_INTERVAL seconds — check liveness
-                    idle = time.monotonic() - conn.last_received_time
-                    if idle >= PING_INTERVAL + PING_TIMEOUT:
-                        logger.warning(
-                            "WebSocket idle timeout, closing connection",
-                            conn_id=conn.conn_id,
-                            idle_seconds=round(idle, 1),
-                        )
-                        conn.closed = True
-                        try:
-                            await conn.websocket.close(code=1001, reason="idle_timeout")
-                        except Exception:
-                            pass
-                        return
-                    # Send a WebSocket ping frame to probe liveness
+                    # No message for PING_INTERVAL seconds — send empty batch as keep-alive probe
                     try:
-                        await conn.websocket.send_bytes(b"")  # ping via empty frame; real ping below
-                        await conn.websocket.send_text("[]")  # send empty batch as keep-alive probe
+                        await conn.websocket.send_text("[]")
                     except Exception:
                         conn.closed = True
                         return

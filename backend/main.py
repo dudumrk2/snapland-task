@@ -59,16 +59,26 @@ async def supervise(name: str, app: FastAPI, worker_func):
     backoff = 1.0
     while True:
         start = asyncio.get_event_loop().time()
+        health_timer: asyncio.Task | None = None
         try:
             if hasattr(app.state, "bg_tasks_status"):
-                # Status=True only after the worker runs for at least 1 s without crashing.
-                # A worker that crashes instantly would otherwise show as healthy.
                 app.state.bg_tasks_status[name] = False
+
+            async def _mark_healthy_after_delay():
+                await asyncio.sleep(1.0)
+                if hasattr(app.state, "bg_tasks_status"):
+                    app.state.bg_tasks_status[name] = True
+
+            health_timer = asyncio.create_task(_mark_healthy_after_delay())
             await worker_func(app)
             await asyncio.sleep(0.5)
         except asyncio.CancelledError:
+            if health_timer and not health_timer.done():
+                health_timer.cancel()
             break
         except Exception as e:
+            if health_timer and not health_timer.done():
+                health_timer.cancel()
             if hasattr(app.state, "bg_tasks_status"):
                 app.state.bg_tasks_status[name] = False
             logger.error(f"Background task {name} error, retrying...", exc_info=e, backoff=backoff)
@@ -80,6 +90,8 @@ async def supervise(name: str, app: FastAPI, worker_func):
             else:
                 backoff = min(backoff * 2, 30.0)
         else:
+            if health_timer and not health_timer.done():
+                health_timer.cancel()
             # Worker exited normally (e.g. async generator exhausted) — reset backoff.
             if hasattr(app.state, "bg_tasks_status"):
                 app.state.bg_tasks_status[name] = True
@@ -94,15 +106,12 @@ async def run_ephemeral_subscriber(app: FastAPI):
         if envelope.origin == instance_id:
             continue
         await manager.broadcast_ephemeral(envelope.message)
-        # Mark as healthy once we're through the first iteration
-        if hasattr(app.state, "bg_tasks_status"):
-            app.state.bg_tasks_status["ephemeral_subscriber"] = True
 
 
 async def run_control_subscriber(app: FastAPI):
     """Handles cross-instance control commands (e.g. logout) via a dedicated Redis channel."""
-    from snapland.infrastructure.pubsub.redis_pubsub import RedisEphemeralBus
     import uuid as _uuid
+
     ephemeral_bus = app.state.ephemeral_bus
     if not hasattr(ephemeral_bus, "subscribe_control"):
         return
@@ -115,8 +124,6 @@ async def run_control_subscriber(app: FastAPI):
                 if user_id_str:
                     user_id = _uuid.UUID(user_id_str)
                     await manager.disconnect_user(user_id)
-                    if hasattr(app.state, "bg_tasks_status"):
-                        app.state.bg_tasks_status["control_subscriber"] = True
         except Exception as e:
             logger.warning("Control subscriber error processing command", cmd=cmd, exc_info=e)
 

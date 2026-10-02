@@ -131,8 +131,9 @@ async def test_revoke_token(auth_service, mock_session_repo):
     )
     mock_session_repo.get_by_token_hash.return_value = session
     
-    await auth_service.revoke_token("valid_token")
+    revoked_uid = await auth_service.revoke_token("valid_token")
     
+    assert revoked_uid == session.user_id
     mock_session_repo.revoke.assert_called_once_with(session.id)
 
 @pytest.mark.asyncio

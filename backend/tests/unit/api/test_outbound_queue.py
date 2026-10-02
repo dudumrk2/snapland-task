@@ -13,6 +13,8 @@ from snapland.core.domain.ws_messages import (
     CursorMoveServerPayload,
     RemoteDrawMessage,
     RemoteDrawPayload,
+    ResyncRequiredMessage,
+    ResyncRequiredPayload,
 )
 
 
@@ -187,4 +189,43 @@ async def test_disconnect_user(mock_ws):
     assert "conn-3" in manager.active_connections
     assert len(manager.get_user_connections(uid1)) == 0
     assert len(manager.get_user_connections(uid2)) == 1
+
+
+@pytest.mark.asyncio
+async def test_enqueue_protected_overflow_closes_with_1013(mock_ws):
+    conn = Connection(mock_ws, uuid.uuid4(), "conn-protected", maxsize=1)
+    dummy_area = Area(
+        id=uuid.uuid4(), name="Area", coordinates=[], area_km2=1.0, version=1,
+        created_by=conn.user_id, last_edited_by=conn.user_id,
+        created_at=datetime.datetime.now(datetime.UTC), updated_at=datetime.datetime.now(datetime.UTC)
+    )
+    durable = AreaSavedMessage(eventId="1-0", payload=AreaSavedPayload(area=dummy_area))
+    await conn.enqueue(durable)
+    assert conn.queue.qsize() == 1
+
+    # Protected message cannot be dropped; must close socket with 1013
+    protected = ResyncRequiredMessage(payload=ResyncRequiredPayload(reason="stream_trimmed"))
+    await conn.enqueue(protected)
+    mock_ws.close.assert_called_once_with(code=1013)
+    assert conn.closed is True
+
+
+@pytest.mark.asyncio
+async def test_disconnect_unregistered_connection_cancels_writer(mock_ws):
+    manager = WebSocketManager()
+    uid = uuid.uuid4()
+    # Connect with register=False (e.g. during initial handshake / catchup replay)
+    conn = await manager.connect(mock_ws, uid, "conn-unregistered", register=False)
+    assert conn is not None
+    assert "conn-unregistered" in manager.all_connections
+    assert "conn-unregistered" not in manager.active_connections
+    assert conn.writer_task is not None
+    assert not conn.writer_task.done()
+
+    # Disconnect must clean up all_connections and cancel writer_task
+    await manager.disconnect("conn-unregistered")
+    assert conn.closed is True
+    assert conn.writer_task.cancelled() or conn.writer_task.done()
+    assert "conn-unregistered" not in manager.all_connections
+
 

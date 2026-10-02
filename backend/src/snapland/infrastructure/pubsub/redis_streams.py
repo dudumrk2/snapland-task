@@ -87,8 +87,9 @@ class RedisEventStream(IEventStream, IEventPublisher):
                 return CatchUp(events=[], resync_required=True)
             return CatchUp(events=[], resync_required=False)
 
-        if last_id != "0-0" and "first-entry" in stream_info and stream_info["first-entry"]:
-            first_entry_id = stream_info["first-entry"][0]
+        first_entry = (stream_info.get("first-entry") or stream_info.get(b"first-entry")) if stream_info else None
+        if last_id != "0-0" and first_entry:
+            first_entry_id = first_entry[0]
             if isinstance(first_entry_id, bytes):
                 first_entry_id = first_entry_id.decode("utf-8")
 

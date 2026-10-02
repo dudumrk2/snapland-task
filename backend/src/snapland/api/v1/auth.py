@@ -102,7 +102,9 @@ async def logout(
             except Exception:
                 pass
 
-        await auth_svc.revoke_token(refresh_token)
+        revoked_user_id = await auth_svc.revoke_token(refresh_token)
+        if not user_id:
+            user_id = revoked_user_id
 
         # Disconnect on THIS instance immediately.
         if user_id:

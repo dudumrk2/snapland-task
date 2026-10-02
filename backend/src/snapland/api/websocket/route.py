@@ -161,7 +161,7 @@ async def websocket_endpoint(
         while not conn.closed:
             data = await websocket.receive_text()
             # Inbound 64 KB limit check
-            if len(data.encode("utf-8")) > 65536:
+            if len(data) > 65536 or len(data.encode("utf-8")) > 65536:
                 conn.closed = True
                 await websocket.close(code=1009, reason="Message too large")
                 break

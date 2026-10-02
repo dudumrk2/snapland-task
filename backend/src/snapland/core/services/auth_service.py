@@ -96,11 +96,13 @@ class AuthService(IAuthService):
         new_access = self._create_access_token(session.user_id)
         return TokenResponse(access_token=new_access, refresh_token=new_refresh)
 
-    async def revoke_token(self, refresh_token: str) -> None:
+    async def revoke_token(self, refresh_token: str) -> uuid.UUID | None:
         token_hash = self._hash_token(refresh_token)
         session = await self.session_repo.get_by_token_hash(token_hash)
         if session:
             await self.session_repo.revoke(session.id)
+            return session.user_id
+        return None
 
     async def issue_ws_ticket(self, user_id: uuid.UUID) -> str:
         ticket = secrets.token_urlsafe(16)

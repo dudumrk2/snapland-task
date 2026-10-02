@@ -21,6 +21,7 @@ def mock_conn():
 @pytest.fixture
 def mock_app_state():
     import datetime
+
     from snapland.core.domain.area import Area
     
     state = MagicMock()
