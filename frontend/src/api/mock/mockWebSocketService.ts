@@ -19,13 +19,13 @@ const MOCK_PEERS: PresenceUser[] = [
 
 export class MockWebSocketService implements IWebSocketService {
   private state: ConnectionState = 'disconnected';
-  private handlers = new Map<ServerMessageType, Set<MessageHandler<any>>>();
+  private handlers = new Map<ServerMessageType, Set<(payload: unknown, eventId?: string) => void>>();
   private stateChangeHandlers = new Set<(state: ConnectionState) => void>();
   private _lastEventId: string | null = null;
-  private mockIntervalTimer: any = null;
-  private connectTimer: any = null;
+  private mockIntervalTimer: ReturnType<typeof setInterval> | null = null;
+  private connectTimer: ReturnType<typeof setTimeout> | null = null;
   /** Test-only sent messages log for verification */
-  public readonly sentMessages: WsMessage<any>[] = [];
+  public readonly sentMessages: WsMessage<ClientMessageType>[] = [];
 
   get connectionState(): ConnectionState {
     return this.state;
@@ -119,10 +119,11 @@ export class MockWebSocketService implements IWebSocketService {
       this.handlers.set(type, new Set());
     }
     const set = this.handlers.get(type)!;
-    set.add(handler);
+    const casted = handler as (payload: unknown, eventId?: string) => void;
+    set.add(casted);
 
     return () => {
-      set.delete(handler);
+      set.delete(casted);
     };
   }
 

@@ -9,11 +9,13 @@ import type {
 
 export class ConflictError extends Error {
   readonly currentArea: Area;
+  readonly currentVersion?: number;
 
-  constructor(message: string, currentArea: Area) {
+  constructor(message: string, currentArea: Area, currentVersion?: number) {
     super(message);
     this.name = 'ConflictError';
     this.currentArea = currentArea;
+    this.currentVersion = currentVersion ?? currentArea.version;
     Object.setPrototypeOf(this, ConflictError.prototype);
   }
 }

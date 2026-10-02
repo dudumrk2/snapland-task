@@ -11,6 +11,7 @@ import { useDrawing } from '../../hooks/useDrawing';
 import { useMapBounds } from '../../hooks/useMapBounds';
 import { useAreas } from '../../hooks/useAreas';
 import { useWebSocket } from '../../hooks/useWebSocket';
+import { useApi } from '../../providers/ApiProvider';
 
 export interface MapViewProps {
   drawingController: ReturnType<typeof useDrawing>;
@@ -55,20 +56,45 @@ export const MapView: React.FC<MapViewProps> = ({
 
     setMapInstance(map);
     setLayerManager(lm);
+    (window as unknown as { snaplandMap?: L.Map }).snaplandMap = map;
 
     return () => {
+      delete (window as unknown as { snaplandMap?: L.Map }).snaplandMap;
       lm.destroy();
       map.remove();
     };
   }, []);
 
+  const { wsService } = useApi();
+  const { connectionState } = useWebSocket();
+
   // Track map bounds and refetch areas
-  useMapBounds(mapInstance, {
-    onBoundsChange: (bounds, zoom) => {
-      fetchAreasInBounds(bounds, zoom);
+  const { bounds, zoom } = useMapBounds(mapInstance, {
+    onBoundsChange: (b, z) => {
+      fetchAreasInBounds(b, z);
     },
     debounceMs: 250,
   });
+
+  // Degraded mode (polling): refetch viewport every 5s (Task 8 / HLD §9.7)
+  useEffect(() => {
+    if (connectionState !== 'polling' || !bounds) return;
+
+    const interval = setInterval(() => {
+      fetchAreasInBounds(bounds, zoom);
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [connectionState, bounds, zoom, fetchAreasInBounds]);
+
+  // RESYNC_REQUIRED: notify useAreas to refetch viewport over HTTP (Task 3 / HLD §9.7)
+  useEffect(() => {
+    return wsService.on('RESYNC_REQUIRED', () => {
+      if (bounds) {
+        fetchAreasInBounds(bounds, zoom);
+      }
+    });
+  }, [wsService, bounds, zoom, fetchAreasInBounds]);
 
   // Track cursor movement for collaborative presence
   useEffect(() => {
@@ -102,7 +128,7 @@ export const MapView: React.FC<MapViewProps> = ({
       {mapInstance && (
         <>
           <BaseLayerControl layerManager={layerManager} onToast={onToast} />
-          <AreaOverlay map={mapInstance} />
+          <AreaOverlay map={mapInstance} isDrawing={drawingController.isDrawing} />
           <DrawingLayer map={mapInstance} drawingController={drawingController} />
           <VertexEditor map={mapInstance} />
           <CollaborationLayer map={mapInstance} />

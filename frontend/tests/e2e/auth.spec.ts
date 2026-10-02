@@ -2,18 +2,19 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Auth Flow', () => {
   test('register -> login -> map -> reload -> logout', async ({ page }) => {
+    const testEmail = `user-${Date.now()}-${Math.random().toString(36).substring(2, 7)}@example.com`;
     await page.goto('/login');
     
     // Switch to register
     await page.getByRole('button', { name: /register/i }).click();
-    await page.fill('input[name="email"]', 'test@example.com');
+    await page.fill('input[name="email"]', testEmail);
     await page.fill('input[name="password"]', 'password123');
     await page.fill('input[name="displayName"]', 'Test User');
     await page.getByRole('button', { name: /submit/i }).click();
 
-    // After register, it should probably route to map or login
+    // After register, navigate or login
     await page.goto('/login');
-    await page.fill('input[name="email"]', 'test@example.com');
+    await page.fill('input[name="email"]', testEmail);
     await page.fill('input[name="password"]', 'password123');
     await page.getByRole('button', { name: /login/i }).click();
 

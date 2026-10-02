@@ -17,7 +17,7 @@ export interface UseDrawingOptions {
 
 export function useDrawing(options?: UseDrawingOptions) {
   const { wsService } = useApi();
-  const { createArea } = useAreas();
+  const { createArea, selectArea } = useAreas();
 
   const [isDrawing, setIsDrawing] = useState(false);
   const [points, setPoints] = useState<Coordinate[]>([]);
@@ -167,30 +167,47 @@ export function useDrawing(options?: UseDrawingOptions) {
       const clean = removeDuplicateConsecutive(points);
       if (clean.length < 3) return;
 
-      // Note on protocol division of responsibility (HLD §9.2 / §11):
-      // The REST API call is authoritative and persists the area to the database.
-      // The DRAW_COMMIT WebSocket message notifies active peers to dismiss their remote
-      // drawing ghost preview for this shapeId, avoiding duplicate creation on the server.
-      const createdArea = await createArea(name, clean);
+      const currentShapeId = shapeIdRef.current || undefined;
 
-      if (shapeIdRef.current) {
+      setIsSaveModalOpen(false);
+      isDrawingRef.current = false;
+      setIsDrawing(false);
+      setPoints([]);
+
+      // In connected mode: emit DRAW_COMMIT over WebSocket, which creates the area
+      // and broadcasts AREA_SAVED with shapeId (HLD §9.1)
+      // In degraded/polling mode: persist directly via HTTP POST (Task 8 / HLD §12.1)
+      if (wsService.connectionState === 'connected' && currentShapeId) {
         wsService.send({
           type: 'DRAW_COMMIT',
           payload: {
-            shapeId: shapeIdRef.current,
+            shapeId: currentShapeId,
             name,
             points: clean,
           },
         });
+      } else {
+        const createdArea = await createArea(name, clean, currentShapeId);
+        shapeIdRef.current = null;
+        return createdArea;
       }
-
-      shapeIdRef.current = null;
-      setIsSaveModalOpen(false);
-      setPoints([]);
-      return createdArea;
     },
     [points, createArea, wsService]
   );
+
+  // If an AREA_SAVED arrives with local shapeId, replace local preview with saved area
+  useEffect(() => {
+    return wsService.on('AREA_SAVED', (payload) => {
+      if (payload.shapeId && payload.shapeId === shapeIdRef.current) {
+        shapeIdRef.current = null;
+        isDrawingRef.current = false;
+        setIsDrawing(false);
+        setPoints([]);
+        setIsSaveModalOpen(false);
+        selectArea(payload.area.id);
+      }
+    });
+  }, [wsService, selectArea]);
 
   // Keyboard shortcut listener: Enter to finish, Escape to cancel
   useEffect(() => {

@@ -48,6 +48,7 @@ export const AreaOverlay: React.FC<AreaOverlayProps> = ({ map, isDrawing = false
       const polygon = L.polygon(latLngs, {
         pane: 'polygonsPane', // Dedicated pane (z-index: 450) ensures no flicker or movement
         className: 'leaflet-interactive snapland-area-polygon',
+        interactive: !isDrawing,
         color: isSelected ? '#ef4444' : '#2563eb',
         weight: isSelected ? 3 : 2,
         fillColor: isSelected ? '#f87171' : '#3b82f6',
@@ -78,7 +79,7 @@ export const AreaOverlay: React.FC<AreaOverlayProps> = ({ map, isDrawing = false
 
       group.addLayer(polygon);
     });
-  }, [map, areas, selectedAreaId, selectArea]);
+  }, [map, areas, selectedAreaId, selectArea, isDrawing]);
 
   return null;
 };

@@ -26,11 +26,15 @@ export function setupWebSocketSubscriptions(
   });
 
   const unsubJoined = wsService.on('USER_JOINED', (payload) => {
-    useCollaborationStore.getState().addPresenceUser(payload);
+    if (payload.userId) {
+      useCollaborationStore.getState().addPresenceUser(payload);
+    }
   });
 
   const unsubLeft = wsService.on('USER_LEFT', (payload) => {
-    useCollaborationStore.getState().removePresenceUser(payload.userId);
+    if (payload.userId) {
+      useCollaborationStore.getState().removePresenceUser(payload.userId);
+    }
   });
 
   // 3. Cursors & drawing
@@ -62,24 +66,53 @@ export function setupWebSocketSubscriptions(
       editedCoordinates
     ) {
       const local = areas.find((a) => a.id === editingAreaId);
-      if (local) {
-        areasState.setConflict({
-          localArea: {
-            id: local.id,
-            name: local.name,
-            coordinates: editedCoordinates,
-            version: local.version,
-          },
-          currentArea: payload.area,
-        });
-      }
+      areasState.setConflict({
+        localArea: {
+          id: editingAreaId,
+          name: local?.name ?? payload.area.name,
+          coordinates: editedCoordinates,
+          version: local?.version ?? payload.area.version - 1,
+        },
+        currentArea: payload.area,
+      });
     }
     areasState.updateArea(payload.area);
     if (eventId) useCollaborationStore.getState().setLastEventId(eventId);
   });
 
   const unsubAreaDeleted = wsService.on('AREA_DELETED', (payload, eventId) => {
-    useAreasStore.getState().deleteArea(payload.areaId);
+    const areasState = useAreasStore.getState();
+    const { editingAreaId, editedCoordinates, areas } = areasState;
+
+    // Proactive conflict detection on deletion (HLD §14)
+    if (
+      options.enableProactiveConflict &&
+      editingAreaId === payload.areaId &&
+      editedCoordinates
+    ) {
+      const local = areas.find((a) => a.id === editingAreaId);
+      areasState.setConflict({
+        localArea: {
+          id: payload.areaId,
+          name: local?.name ?? 'Deleted Area',
+          coordinates: editedCoordinates,
+          version: local?.version ?? 1,
+        },
+        currentArea: {
+          id: payload.areaId,
+          name: `${local?.name || 'Area'} (Deleted on server)`,
+          coordinates: local?.coordinates ?? editedCoordinates,
+          areaKm2: local?.areaKm2 ?? 0,
+          version: (local?.version ?? 1) + 1,
+          createdBy: local?.createdBy ?? '',
+          lastEditedBy: 'system',
+          createdAt: local?.createdAt ?? new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    }
+
+    areasState.deleteArea(payload.areaId);
     if (eventId) useCollaborationStore.getState().setLastEventId(eventId);
   });
 

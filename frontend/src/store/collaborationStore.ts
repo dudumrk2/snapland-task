@@ -48,10 +48,14 @@ export const useCollaborationStore = create<CollaborationState>((set) => ({
   setPresenceUsers: (presenceUsers) => set({ presenceUsers }),
   addPresenceUser: (user) =>
     set((state) => {
-      if (state.presenceUsers.some((u) => u.userId === user.userId)) {
+      const actualUser: PresenceUser =
+        (user as unknown as { user?: PresenceUser }).user || user;
+      if (!actualUser || !actualUser.userId) return state;
+
+      if (state.presenceUsers.some((u) => u.userId === actualUser.userId)) {
         return state;
       }
-      return { presenceUsers: [...state.presenceUsers, user] };
+      return { presenceUsers: [...state.presenceUsers, actualUser] };
     }),
   removePresenceUser: (userId) =>
     set((state) => {
