@@ -122,16 +122,21 @@ class RedisEventStream(IEventStream, IEventPublisher):
 
         return CatchUp(events=events, resync_required=False)
 
-    async def follow(self) -> AsyncIterator[tuple[str, ServerMessage]]:
-        try:
-            stream_info = await self.redis.xinfo_stream(self.stream_key)
-            last_gen = stream_info.get("last-generated-id") or stream_info.get(b"last-generated-id")
-            if last_gen:
-                last_id = last_gen.decode("utf-8") if isinstance(last_gen, bytes) else str(last_gen)
-            else:
+    async def follow(self, resume_from: str | None = None) -> AsyncIterator[tuple[str, ServerMessage]]:
+        if resume_from is not None:
+            # Resume from a specific position (e.g. after a crash/restart).
+            last_id = resume_from
+        else:
+            # First startup: begin from current stream tip so we don't replay old history.
+            try:
+                stream_info = await self.redis.xinfo_stream(self.stream_key)
+                last_gen = stream_info.get("last-generated-id") or stream_info.get(b"last-generated-id")
+                if last_gen:
+                    last_id = last_gen.decode("utf-8") if isinstance(last_gen, bytes) else str(last_gen)
+                else:
+                    last_id = "0-0"
+            except Exception:
                 last_id = "0-0"
-        except Exception:
-            last_id = "0-0"
 
         while True:
             raw_res: Any = await self.redis.xread({self.stream_key: last_id}, block=1000)

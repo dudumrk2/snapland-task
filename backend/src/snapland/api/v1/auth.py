@@ -91,8 +91,9 @@ async def logout(
     refresh_token: str = Cookie(None),
     auth_svc: IAuthService = Depends(get_auth_service)
 ):
+    user_id = None
     if refresh_token:
-        user_id = None
+        # Try to resolve user_id from the access token first (fastest path).
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
             try:
@@ -103,10 +104,21 @@ async def logout(
 
         await auth_svc.revoke_token(refresh_token)
 
+        # Disconnect on THIS instance immediately.
         if user_id:
             ws_manager = getattr(request.app.state, "ws_manager", None)
             if ws_manager:
                 await ws_manager.disconnect_user(user_id)
+
+        # Broadcast logout to ALL instances via Redis control channel.
+        if user_id:
+            ephemeral_bus = getattr(request.app.state, "ephemeral_bus", None)
+            if ephemeral_bus and hasattr(ephemeral_bus, "publish_control"):
+                try:
+                    await ephemeral_bus.publish_control({"type": "logout", "userId": str(user_id)})
+                except Exception:
+                    pass  # Best-effort; local disconnect already done above
+
     response.delete_cookie("refresh_token", path="/api/v1/auth")
     return {"status": "ok"}
 

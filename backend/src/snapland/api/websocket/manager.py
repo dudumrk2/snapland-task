@@ -14,6 +14,9 @@ from snapland.core.domain.ws_messages import RemoteDrawMessage, ServerMessage
 logger = structlog.get_logger(__name__)
 
 DURABLE_TYPES = frozenset({"AREA_SAVED", "AREA_UPDATED", "AREA_DELETED"})
+# Messages that must never be evicted from the queue — dropping them would leave the
+# client silently stale (RESYNC_REQUIRED) or never getting an error feedback.
+PROTECTED_TYPES = frozenset({"RESYNC_REQUIRED", "PRESENCE_SNAPSHOT", "ERROR"})
 
 WS_MESSAGES_DROPPED_TOTAL: Optional[Any] = None
 try:
@@ -80,9 +83,9 @@ class ConnectionQueue:
             self._has_items.set()
 
     def evict_oldest_ephemeral(self) -> bool:
-        """Finds and evicts the oldest ephemeral message. Returns True if evicted, False if all durable."""
+        """Finds and evicts the oldest ephemeral, non-protected message. Returns True if evicted, False if none found."""
         for idx, item in enumerate(self._items):
-            if item.type not in DURABLE_TYPES:
+            if item.type not in DURABLE_TYPES and item.type not in PROTECTED_TYPES:
                 del self._items[idx]
                 if not self._items:
                     self._has_items.clear()
@@ -194,9 +197,37 @@ class WebSocketManager:
                 await self.disconnect(conn.conn_id)
 
     async def _writer(self, conn: Connection):
+        PING_INTERVAL = 25.0   # send ping after this many seconds idle
+        PING_TIMEOUT = 10.0    # close if pong/frame not received within this time after ping
+
         try:
             while not conn.closed:
-                msg = await conn.queue.get()
+                try:
+                    msg = await asyncio.wait_for(conn.queue.get(), timeout=PING_INTERVAL)
+                except asyncio.TimeoutError:
+                    # No message for PING_INTERVAL seconds — check liveness
+                    idle = time.monotonic() - conn.last_received_time
+                    if idle >= PING_INTERVAL + PING_TIMEOUT:
+                        logger.warning(
+                            "WebSocket idle timeout, closing connection",
+                            conn_id=conn.conn_id,
+                            idle_seconds=round(idle, 1),
+                        )
+                        conn.closed = True
+                        try:
+                            await conn.websocket.close(code=1001, reason="idle_timeout")
+                        except Exception:
+                            pass
+                        return
+                    # Send a WebSocket ping frame to probe liveness
+                    try:
+                        await conn.websocket.send_bytes(b"")  # ping via empty frame; real ping below
+                        await conn.websocket.send_text("[]")  # send empty batch as keep-alive probe
+                    except Exception:
+                        conn.closed = True
+                        return
+                    continue
+
                 batch = [msg]
 
                 is_durable = msg.type in DURABLE_TYPES

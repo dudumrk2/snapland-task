@@ -1,4 +1,5 @@
 from typing import Any, Optional
+import time
 
 import orjson
 import structlog
@@ -38,8 +39,6 @@ def _validate_coordinate(coord: Any) -> Optional[Coordinate]:
     except (ValueError, TypeError):
         return None
 
-
-import time
 
 async def dispatch_message(conn: Connection, raw_data: str, app_state: Any) -> None:
     try:

@@ -62,13 +62,22 @@ class AreaService(IAreaService):
         created_area = await self.repo.create(area)
         await self.cache.incr("areas:epoch")
         created_at_dt = created_area.created_at if isinstance(created_area.created_at, datetime.datetime) else datetime.datetime.fromisoformat(created_area.created_at)
-        await self.events.publish(AreaCreated(
-            area_id=created_area.id,
-            created_at=created_at_dt,
-            created_by=created_area.created_by,
-            area=created_area,
-            shape_id=req.shape_id
-        ))
+        try:
+            await self.events.publish(AreaCreated(
+                area_id=created_area.id,
+                created_at=created_at_dt,
+                created_by=created_area.created_by,
+                area=created_area,
+                shape_id=req.shape_id
+            ))
+        except Exception:
+            # The row is committed — log but do NOT re-raise; the stream follower
+            # will not pick up this event, but the DB is the source of truth.
+            import logging
+            logging.getLogger(__name__).warning(
+                "Failed to publish AreaCreated event after commit; area was saved",
+                extra={"area_id": str(created_area.id)},
+            )
         return created_area
 
     async def update_area(self, area_id: uuid.UUID, req: UpdateAreaRequest, user_id: uuid.UUID) -> Area:
@@ -108,23 +117,37 @@ class AreaService(IAreaService):
             
         await self.cache.incr("areas:epoch")
         updated_at_dt = res.updated_at if isinstance(res.updated_at, datetime.datetime) else datetime.datetime.fromisoformat(res.updated_at)
-        await self.events.publish(AreaUpdated(
-            area_id=res.id,
-            version=res.version,
-            updated_at=updated_at_dt,
-            updated_by=user_id,
-            area=res
-        ))
+        try:
+            await self.events.publish(AreaUpdated(
+                area_id=res.id,
+                version=res.version,
+                updated_at=updated_at_dt,
+                updated_by=user_id,
+                area=res
+            ))
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Failed to publish AreaUpdated event after commit; area was saved",
+                extra={"area_id": str(res.id)},
+            )
         return res
 
     async def delete_area(self, area_id: uuid.UUID, user_id: uuid.UUID) -> None:
         await self.repo.soft_delete(area_id, user_id)
         await self.cache.incr("areas:epoch")
-        await self.events.publish(AreaDeleted(
-            area_id=area_id,
-            deleted_at=datetime.datetime.now(datetime.UTC),
-            deleted_by=user_id
-        ))
+        try:
+            await self.events.publish(AreaDeleted(
+                area_id=area_id,
+                deleted_at=datetime.datetime.now(datetime.UTC),
+                deleted_by=user_id
+            ))
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Failed to publish AreaDeleted event after commit; area was soft-deleted",
+                extra={"area_id": str(area_id)},
+            )
 
     async def get_area(self, area_id: uuid.UUID) -> Area:
         area = await self.repo.get_by_id(area_id)

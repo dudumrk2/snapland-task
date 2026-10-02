@@ -23,7 +23,7 @@ class IEphemeralBus(Protocol):                # Redis Pub/Sub — loss-tolerant
 class IEventStream(Protocol):                 # Redis Streams — durable, replayable
     async def append(self, message: ServerMessage) -> str: ...                       # returns stream id (eventId)
     async def read_since(self, last_id: str, limit: int = 500) -> CatchUp: ...
-    def follow(self) -> AsyncIterator[tuple[str, ServerMessage]]: ...                # XREAD BLOCK from "$"
+    def follow(self, resume_from: str | None = None) -> AsyncIterator[tuple[str, ServerMessage]]: ...  # XREAD BLOCK, resumable
 
 class IPresenceStore(Protocol):               # Redis ZSET, heartbeat-based
     async def heartbeat(self, user_id: UUID, conn_id: str, display_name: str) -> None: ...

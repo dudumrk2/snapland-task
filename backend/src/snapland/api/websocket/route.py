@@ -123,8 +123,11 @@ async def websocket_endpoint(
         if lastEventId:
             event_stream = getattr(websocket.app.state, "event_stream", None)
             if event_stream:
+                # Cap replay at the queue bound so we never overfill it and close the socket.
+                # read_since returns resync_required=True when more than `limit` events exist.
+                REPLAY_LIMIT = conn.queue.maxsize - 1  # leave room for RESYNC_REQUIRED itself
                 try:
-                    catchup = await event_stream.read_since(lastEventId, limit=500)
+                    catchup = await event_stream.read_since(lastEventId, limit=REPLAY_LIMIT)
                     if catchup.resync_required:
                         await conn.enqueue(
                             ResyncRequiredMessage(payload=ResyncRequiredPayload(reason="stream_trimmed"))
