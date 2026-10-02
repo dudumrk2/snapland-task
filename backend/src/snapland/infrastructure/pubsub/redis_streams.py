@@ -76,6 +76,7 @@ class RedisEventStream(IEventStream, IEventPublisher):
         if not last_id or not re.match(r"^\d+-\d+$", last_id):
             return CatchUp(events=[], resync_required=True)
 
+        stream_info: Any = None
         try:
             stream_info = await self.redis.xinfo_stream(self.stream_key)
         except Exception:
@@ -130,7 +131,7 @@ class RedisEventStream(IEventStream, IEventPublisher):
         else:
             # First startup: begin from current stream tip so we don't replay old history.
             try:
-                stream_info = await self.redis.xinfo_stream(self.stream_key)
+                stream_info: Any = await self.redis.xinfo_stream(self.stream_key)
                 last_gen = stream_info.get("last-generated-id") or stream_info.get(b"last-generated-id")
                 if last_gen:
                     last_id = last_gen.decode("utf-8") if isinstance(last_gen, bytes) else str(last_gen)
