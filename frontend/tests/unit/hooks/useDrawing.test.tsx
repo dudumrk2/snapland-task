@@ -437,4 +437,53 @@ describe('useDrawing', () => {
     expect(result.current.isSaveModalOpen).toBe(false);
     expect(result.current.points).toHaveLength(0);
   });
+
+  it('rejects concurrent saveDrawing calls while a commit is in progress', async () => {
+    mockWsService.connect(async () => 'ticket');
+    await new Promise((r) => setTimeout(r, 150));
+
+    const { result } = renderHook(() => useDrawing(), { wrapper });
+
+    act(() => {
+      result.current.startDrawing();
+      result.current.addPoint({ lat: 32.0, lng: 34.8 });
+      result.current.addPoint({ lat: 32.0, lng: 34.9 });
+      result.current.addPoint({ lat: 32.1, lng: 34.85 });
+      result.current.finishDrawing();
+    });
+
+    vi.spyOn(mockWsService, 'send').mockImplementation((msg) => {
+      mockWsService.sentMessages.push(msg);
+      return true;
+    });
+
+    let firstPromise: Promise<unknown>;
+    act(() => {
+      firstPromise = result.current.saveDrawing('First Save');
+    });
+
+    // Calling saveDrawing again immediately while first is in-flight
+    await expect(result.current.saveDrawing('Second Save')).rejects.toThrow('Save already in progress');
+
+    // Complete the first save
+    const activeShapeId = (mockWsService.sentMessages.find((m) => m.type === 'DRAW_COMMIT')?.payload as { shapeId: string }).shapeId;
+    act(() => {
+      mockWsService.dispatch('AREA_SAVED', {
+        shapeId: activeShapeId,
+        area: {
+          id: 'area-first',
+          name: 'First Save',
+          coordinates: [{ lat: 32.0, lng: 34.8 }],
+          areaKm2: 1.0,
+          version: 1,
+          createdBy: 'user-1',
+          lastEditedBy: 'user-1',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    });
+
+    await expect(firstPromise!).resolves.toBeDefined();
+  });
 });

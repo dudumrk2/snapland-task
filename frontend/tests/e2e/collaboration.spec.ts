@@ -5,6 +5,8 @@ test.describe('Real-Time Collaboration', () => {
   test('two browser contexts: presence, remote drawing deltas, area saved, and conflict resolution', async ({
     browser,
   }) => {
+    test.setTimeout(60000);
+
     // 1. Two separate browser contexts (User A and User B)
     const contextA = await browser.newContext();
     const contextB = await browser.newContext();

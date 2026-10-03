@@ -208,6 +208,10 @@ export function useDrawing(options?: UseDrawingOptions) {
 
   const saveDrawing = useCallback(
     async (name: string) => {
+      if (pendingCommitRef.current) {
+        throw new Error('Save already in progress');
+      }
+
       const clean = removeDuplicateConsecutive(points);
       if (clean.length < 3) return;
 

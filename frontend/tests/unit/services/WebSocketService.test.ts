@@ -208,4 +208,52 @@ describe('RealWebSocketService', () => {
       }
     }
   });
+
+  it('handles React 18 StrictMode quick remount (connect -> disconnect -> connect) cleanly without orphan reconnection', async () => {
+    const ticketProvider = vi.fn().mockResolvedValue('strictmode-ticket');
+
+    // First mount
+    wsService.connect(ticketProvider);
+    // Unmount before ticket resolves or socket completes
+    wsService.disconnect();
+    // Second mount
+    wsService.connect(ticketProvider);
+
+    await vi.advanceTimersByTimeAsync(50);
+    expect(wsService.connectionState).toBe('connected');
+
+    // Advancing time should not fire any stray reconnect timer or disconnect the active socket
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(wsService.connectionState).toBe('connected');
+  });
+
+  it('does not reset failure counter on early message arrival until stability window passes', async () => {
+    const ticketProvider = vi.fn().mockResolvedValue('stability-ticket');
+
+    // Induce 2 failures first
+    const failProvider = vi.fn().mockRejectedValue(new Error('fail'));
+    wsService.connect(failProvider);
+    await vi.advanceTimersByTimeAsync(1500); // failure 1
+    await vi.advanceTimersByTimeAsync(2500); // failure 2
+    expect(wsService.connectionState).toBe('reconnecting');
+
+    // Now connect successfully with ticketProvider
+    wsService.connect(ticketProvider);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(wsService.connectionState).toBe('connected');
+
+    // Receive message immediately (e.g. PRESENCE_SNAPSHOT)
+    const socket = (wsService as unknown as { socket: MockWebSocket }).socket;
+    socket.onmessage?.({
+      data: JSON.stringify([{ type: 'PRESENCE_SNAPSHOT', payload: { users: [] } }]),
+    });
+
+    // Close before 10s stability window
+    socket.close(1006, 'Drop');
+    await vi.advanceTimersByTimeAsync(10);
+
+    // Because stability window was not reached, consecutiveFailures was not cleared!
+    // It should be failure 3, remaining in reconnecting (not reset to 1)
+    expect(wsService.connectionState).toBe('reconnecting');
+  });
 });

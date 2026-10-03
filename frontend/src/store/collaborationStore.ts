@@ -44,8 +44,39 @@ export const useCollaborationStore = create<CollaborationState>((set) => ({
   remoteShapes: {},
   lastEventId: null,
 
-  setConnectionState: (connectionState) => set({ connectionState }),
-  setPresenceUsers: (presenceUsers) => set({ presenceUsers }),
+  setConnectionState: (connectionState) =>
+    set((state) => {
+      if (connectionState === 'disconnected' || connectionState === 'polling') {
+        return {
+          connectionState,
+          remoteCursors: {},
+          remoteShapes: {},
+          presenceUsers: connectionState === 'disconnected' ? [] : state.presenceUsers,
+        };
+      }
+      return { connectionState };
+    }),
+  setPresenceUsers: (presenceUsers) =>
+    set((state) => {
+      const activeUserIds = new Set(presenceUsers.map((u) => u.userId));
+      const nextCursors = { ...state.remoteCursors };
+      for (const userId of Object.keys(nextCursors)) {
+        if (!activeUserIds.has(userId)) {
+          delete nextCursors[userId];
+        }
+      }
+      const nextShapes = { ...state.remoteShapes };
+      for (const [shapeId, shape] of Object.entries(nextShapes)) {
+        if (!activeUserIds.has(shape.userId)) {
+          delete nextShapes[shapeId];
+        }
+      }
+      return {
+        presenceUsers,
+        remoteCursors: nextCursors,
+        remoteShapes: nextShapes,
+      };
+    }),
   addPresenceUser: (user) =>
     set((state) => {
       const actualUser: PresenceUser =

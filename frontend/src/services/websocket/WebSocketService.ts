@@ -31,6 +31,7 @@ export class RealWebSocketService implements IWebSocketService {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private stabilityTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalDisconnect = false;
+  private connectionAttemptId = 0;
 
   get connectionState(): ConnectionState {
     return this.state;
@@ -43,6 +44,7 @@ export class RealWebSocketService implements IWebSocketService {
   connect(ticketProvider: () => Promise<string>): void {
     this.ticketProvider = ticketProvider;
     this.intentionalDisconnect = false;
+    this.clearReconnectTimer();
 
     if (this.state === 'connected' || this.state === 'connecting') {
       return;
@@ -53,13 +55,22 @@ export class RealWebSocketService implements IWebSocketService {
 
   disconnect(): void {
     this.intentionalDisconnect = true;
+    this.connectionAttemptId += 1;
     this.clearReconnectTimer();
     this.clearStabilityTimer();
 
     if (this.socket) {
-      // Normal closure
-      this.socket.close(1000, 'Intentional disconnect');
+      const ws = this.socket;
       this.socket = null;
+      ws.onopen = null;
+      ws.onmessage = null;
+      ws.onerror = null;
+      ws.onclose = null;
+      try {
+        ws.close(1000, 'Intentional disconnect');
+      } catch {
+        // Ignore close error
+      }
     }
 
     this.consecutiveFailures = 0;
@@ -155,20 +166,36 @@ export class RealWebSocketService implements IWebSocketService {
   private async initiateConnection(): Promise<void> {
     if (!this.ticketProvider || this.intentionalDisconnect) return;
 
+    const currentAttempt = ++this.connectionAttemptId;
     this.updateState('connecting');
 
     let ticket: string;
     try {
       ticket = await this.ticketProvider();
     } catch {
-      if (this.intentionalDisconnect) return;
+      if (this.intentionalDisconnect || this.connectionAttemptId !== currentAttempt) return;
       this.handleConnectionFailure();
       return;
     }
 
-    if (this.intentionalDisconnect) return;
+    if (this.intentionalDisconnect || this.connectionAttemptId !== currentAttempt) return;
 
     try {
+      // If there's an existing socket, detach handlers and close it
+      if (this.socket) {
+        const oldWs = this.socket;
+        this.socket = null;
+        oldWs.onopen = null;
+        oldWs.onmessage = null;
+        oldWs.onerror = null;
+        oldWs.onclose = null;
+        try {
+          oldWs.close(1000, 'Replaced by new connection');
+        } catch {
+          // Ignore
+        }
+      }
+
       const wsUrl = this.getWebSocketUrl(ticket);
       const ws = new WebSocket(wsUrl);
       this.socket = ws;
@@ -189,9 +216,6 @@ export class RealWebSocketService implements IWebSocketService {
 
       ws.onmessage = (event: MessageEvent) => {
         if (this.socket !== ws) return;
-        this.clearStabilityTimer();
-        this.consecutiveFailures = 0;
-        this.consecutiveAuthFailures = 0;
         this.handleMessage(event.data);
       };
 
@@ -201,9 +225,11 @@ export class RealWebSocketService implements IWebSocketService {
 
       ws.onclose = (event: CloseEvent) => {
         this.clearStabilityTimer();
-        if (this.socket === ws) {
-          this.socket = null;
+        if (this.socket !== ws) {
+          // Stale socket, ignore close event completely
+          return;
         }
+        this.socket = null;
 
         if (this.intentionalDisconnect) {
           this.updateState('disconnected');
@@ -228,7 +254,9 @@ export class RealWebSocketService implements IWebSocketService {
         this.handleConnectionFailure();
       };
     } catch {
-      this.handleConnectionFailure();
+      if (this.connectionAttemptId === currentAttempt && !this.intentionalDisconnect) {
+        this.handleConnectionFailure();
+      }
     }
   }
 
@@ -287,12 +315,12 @@ export class RealWebSocketService implements IWebSocketService {
         this._lastEventId = rawMsg.eventId;
       }
 
-      // Handle RATE_LIMITED error toast
+      // Handle RATE_LIMITED error toast (suppressed for DRAW_COMMIT which is handled in useDrawing modal)
       if (rawMsg.type === 'ERROR') {
         const payload = rawMsg.payload as
-          | { code?: string; message?: string; retryAfterMs?: number }
+          | { code?: string; message?: string; retryAfterMs?: number; refType?: ClientMessageType }
           | undefined;
-        if (payload?.code === 'RATE_LIMITED') {
+        if (payload?.code === 'RATE_LIMITED' && payload?.refType !== 'DRAW_COMMIT') {
           const retryAfterMs = payload.retryAfterMs;
           const retrySec = retryAfterMs ? Math.ceil(retryAfterMs / 1000) : 1;
           showToast(`Rate limited. Please retry in ${retrySec}s.`);
