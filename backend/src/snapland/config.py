@@ -106,7 +106,7 @@ class Settings(BaseSettings):
     INSTANCE_ID: str = _generate_instance_id()
     WS_ALLOWED_ORIGINS: str = "*"
     CORS_ORIGINS: list[str] | str = DEFAULT_CORS_ORIGINS
-    MAX_AREA_KM2: float = 1000.0
+    MAX_AREA_KM2: float = 25000.0
     MAX_POLYGON_VERTICES: int = 1000
 
     @property

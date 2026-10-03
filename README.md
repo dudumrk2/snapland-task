@@ -235,7 +235,7 @@ Empirical performance numbers captured from the hardened application stack (see 
   - Nginx provides an IP-level rate-limiting backstop (`30r/s`, burst 20).
 - **SQL Injection & Input Validation**:
   - Parameterized queries throughout SQLAlchemy 2.0 and asyncpg.
-  - Pydantic models validate geometry limits (3 to 1,000 vertices, minimum 1 m², maximum 1,000 km²).
+  - Pydantic models and SpatialService validate geometry limits (3 to 1,000 vertices, minimum 1 m², maximum 25,000 km² configured via `MAX_AREA_KM2`).
 
 ---
 
@@ -321,7 +321,7 @@ See `.env.example` for the complete configuration schema:
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Access token lifetime | `15` |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | Refresh token lifetime | `7` |
 | `WS_ALLOWED_ORIGINS` | Allowed origins for WebSocket handshake | `*` |
-| `MAX_AREA_KM2` | Maximum polygon area in square kilometers | `1000.0` |
+| `MAX_AREA_KM2` | Maximum polygon area in square kilometers | `25000.0` |
 | `MAX_POLYGON_VERTICES` | Maximum vertex count per polygon | `1000` |
 | `VITE_API_URL` | Frontend REST API base URL | `/api/v1` |
 | `VITE_WS_URL` | Frontend WebSocket endpoint URL | `/ws` |

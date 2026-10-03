@@ -76,11 +76,39 @@ describe('LayerManager', () => {
 
     await switchPromise;
     expect(layerManager.isFallbackActive()).toBe(true);
-    expect(fallbackSpy).toHaveBeenCalled();
+    expect(fallbackSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Fallback')
+    );
 
     const currentLayer = layerManager.getCurrentTileLayer();
     expect(currentLayer).toBeDefined();
     // @ts-expect-error accessing leaflet options for testing
     expect(currentLayer?.options?.opacity ?? 1).toBe(1);
+    // @ts-expect-error accessing leaflet url for testing
+    expect(currentLayer?._url).toContain('govmap.gov.il');
+  });
+
+  it('switches to Esri World Imagery as primary satellite layer', async () => {
+    layerManager = new LayerManager({ crossFadeDurationMs: 10 });
+    layerManager.initialize(map, 'osm');
+
+    const switchPromise = layerManager.switchLayer('satellite');
+
+    // Simulate immediate successful load on pending layer
+    const layers: any[] = [];
+    map.eachLayer((l) => layers.push(l));
+    const targetLayer = layers[layers.length - 1];
+    if (targetLayer) {
+      targetLayer.fire('load');
+    }
+
+    await switchPromise;
+    expect(layerManager.getCurrentLayerType()).toBe('satellite');
+    expect(layerManager.isFallbackActive()).toBe(false);
+
+    const currentLayer = layerManager.getCurrentTileLayer();
+    expect(currentLayer).toBeDefined();
+    // @ts-expect-error accessing leaflet url for testing
+    expect(currentLayer?._url).toContain('arcgisonline.com');
   });
 });

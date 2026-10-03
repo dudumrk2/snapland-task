@@ -6,8 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from main import app
-from snapland.api.v1.areas import get_area_service
-from snapland.api.v1.auth import get_current_user_id, get_rate_limiter
+from snapland.api.deps import get_area_service, get_auth_service, get_rate_limiter
+from snapland.api.v1.auth import get_current_user_id
 from snapland.core.domain.area import Area
 from snapland.core.interfaces.repositories import AreaPage
 from snapland.core.interfaces.services import RateLimitResult
@@ -23,6 +23,10 @@ def mock_get_rate_limiter():
     return limiter
 
 @pytest.fixture
+def auth_service_mock():
+    return MagicMock()
+
+@pytest.fixture
 def area_service_mock():
     svc = MagicMock()
     svc.get_areas_in_bounds = AsyncMock()
@@ -34,10 +38,11 @@ def area_service_mock():
     return svc
 
 @pytest.fixture(autouse=True)
-def override_dependencies(area_service_mock):
+def override_dependencies(area_service_mock, auth_service_mock):
     app.dependency_overrides[get_current_user_id] = mock_get_current_user_id
     app.dependency_overrides[get_rate_limiter] = mock_get_rate_limiter
     app.dependency_overrides[get_area_service] = lambda: area_service_mock
+    app.dependency_overrides[get_auth_service] = lambda: auth_service_mock
     yield
     app.dependency_overrides = {}
 
@@ -49,6 +54,15 @@ def test_get_areas(area_service_mock):
     assert response.status_code == 200
     assert response.json() == {"areas": [], "truncated": False}
     area_service_mock.get_areas_in_bounds.assert_called_once_with(34.0, 31.0, 35.0, 32.0, zoom=10, limit=50)
+
+def test_get_areas_unauthorized(area_service_mock):
+    # Temporarily remove auth override to test unauthenticated rejection
+    del app.dependency_overrides[get_current_user_id]
+    try:
+        response = client.get("/api/v1/areas?bounds=34.0,31.0,35.0,32.0&zoom=10&limit=50")
+        assert response.status_code == 401
+    finally:
+        app.dependency_overrides[get_current_user_id] = mock_get_current_user_id
 
 def test_create_area(area_service_mock):
     area_id = uuid.uuid4()

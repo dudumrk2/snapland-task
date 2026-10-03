@@ -17,13 +17,12 @@ async def get_areas(
     bounds: str = Query(..., description="minLng,minLat,maxLng,maxLat"),
     zoom: int | None = Query(None),
     limit: int = Query(500),
+    user_id: uuid.UUID = Depends(get_current_user_id),
     area_svc=Depends(get_area_service),
     limiter=Depends(get_rate_limiter),
 ):
-    from snapland.api.v1.auth import get_client_ip
     from snapland.middleware.rate_limiter import check_rate_limit
-    ip = get_client_ip(request)
-    await check_rate_limit(limiter, ip, "http", 100, 60)
+    await check_rate_limit(limiter, str(user_id), "http", 100, 60)
     
     try:
         parts = [float(x) for x in bounds.split(",")]

@@ -36,7 +36,7 @@
 **Snapland** is a collaborative, real-time GIS web application where multiple users can simultaneously draw, edit, and analyze geographic polygons on an interactive map. The system supports:
 
 - Multi-user real-time collaboration: live cursors, incremental (delta) drawing previews, presence
-- Dual map layers: OpenStreetMap (default) + Israeli satellite imagery from govmap.gov.il (source and CRS verified in Phase 1, see §11.4 / §11.6) with an Esri World Imagery fallback
+- Dual map layers: OpenStreetMap (default) + Satellite imagery via Esri World Imagery (ADR-004: govmap evaluated per assignment requirements; confirmed to serve street basemap tiles rather than aerial photography; Esri is implemented as primary satellite layer with GovMap/OSM as documented fallback/known limitation)
 - Persistent polygon storage with full versioning and edit history
 - Authoritative area calculation in km² on the WGS84 ellipsoid (PostGIS `geography`), plus a live in-browser estimate while drawing
 - Spatial queries bounded to the user's current viewport (GiST-indexed, zoom-aware simplification)
@@ -379,7 +379,7 @@ snapland/
 | **Frontend Framework** | **React 18 + TypeScript** (Vite) | Component model + strict typing |
 | **State Management** | **Zustand** | Lightweight, testable without Provider wrapping |
 | **Map Library** | **Leaflet.js 1.9** | Required; `L.tileLayer` handles OSM and XYZ tiles natively |
-| **Satellite Layer** | **govmap.gov.il** tiles — endpoint, imagery type and CRS verified in Phase 1 (ADR-004) | Configurable via `VITE_SATELLITE_TILE_URL`; Esri World Imagery is the tested fallback |
+| **Satellite Layer** | **Esri World Imagery** (primary satellite layer; govmap evaluated in Phase 1/ADR-004 was found to be vector/street only) | Configurable via `VITE_SATELLITE_TILE_URL` (defaults to Esri World Imagery); GovMap/OSM fallback |
 | **Spatial Calc (FE)** | **`@turf/area`**, `@turf/kinks` | Live estimate (spherical) and self-intersection pre-check while drawing |
 | **Spatial Calc (BE)** | **PostGIS `ST_Area(::geography)`** authoritative; `shapely` + `pyproj.Geod` in unit tests | Same WGS84 ellipsoid on both sides of the test boundary |
 | **Projections** | `proj4` (frontend, only if an ITM/EPSG:2039 source is confirmed) | See §11.6 |
@@ -1080,38 +1080,40 @@ stateDiagram-v2
 1. Add the target tile layer to `tilePane` at `opacity: 0` (map center, zoom and all overlay layers untouched).
 2. On the layer's `load` event, cross-fade (~300 ms): target → 1, current → 0.
 3. Remove the old layer. In-progress drawing points are never touched (they live in `useDrawing` state, WGS84).
-4. If `load` does not fire within 5 s, or `tileerror` exceeds a threshold, switch to the Esri fallback and show a notice.
-5. The satellite layer sets `maxNativeZoom` from ADR-004; the map keeps `maxZoom` 19 so Leaflet upscales tiles beyond the source's native zoom instead of showing blanks.
+4. If `load` does not fire within 5 s, or `tileerror` exceeds a threshold, switch to the fallback layer and show a notice.
+5. The satellite layer sets `maxNativeZoom` 19; the map keeps `maxZoom` 19 so Leaflet upscales tiles beyond the source's native zoom instead of showing blanks.
 
 Invariants covered by unit + E2E tests: overlay `LatLng`s are identical before/after a switch; map center/zoom are unchanged; drawing can continue across a switch.
 
-**govmap satellite integration:**
+**Satellite layer integration & GovMap findings (ADR-004):**
 
-> [!WARNING]
-> The govmap open WMS endpoint (`open.govmap.gov.il/geoserver/opendata/wms`) contains **only vector data layers** (parcels, municipalities) — **not satellite imagery**. The tile endpoint below is *believed* to serve standard XYZ tiles, but neither its imagery type (aerial photo vs. street basemap), its tile grid/CRS, nor its access rules have been verified. Phase 1 verifies them and records the outcome in ADR-004.
+> [!NOTE]
+> Per the project specification, `govmap.gov.il` was evaluated in Phase 1 as the candidate satellite imagery source. The evaluation (recorded in ADR-004) revealed that the open endpoint `https://cdnil.govmap.gov.il/xyz/heb/{z}/{x}/{y}.png` serves standard vector street/administrative basemap tiles in Web Mercator (EPSG:3857) rather than satellite/aerial imagery. Furthermore, the open GeoServer WMS endpoint contains vector cadastral layers only.
+>
+> Consequently, **Esri World Imagery** is implemented as the primary satellite base layer, providing high-resolution global aerial imagery natively in Web Mercator (EPSG:3857). GovMap is maintained as an alternate/fallback basemap layer, and the lack of an unauthenticated open GovMap aerial imagery XYZ service is documented as a known limitation.
 
 ```javascript
-// Configurable; default to be confirmed by the Phase 1 verification checklist below.
+// Primary satellite layer (ADR-004: Esri World Imagery in standard Web Mercator XYZ)
 const SATELLITE_URL = import.meta.env.VITE_SATELLITE_TILE_URL
-  ?? 'https://cdnil.govmap.gov.il/xyz/heb/{z}/{x}/{y}.png';
+  ?? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 
-const govmapLayer = L.tileLayer(SATELLITE_URL, {
-  maxZoom: 19, maxNativeZoom: /* from ADR-004 */ 19, attribution: '© Survey of Israel — GovMap',
+const satelliteLayer = L.tileLayer(SATELLITE_URL, {
+  maxZoom: 19,
+  attribution: '© Esri, Maxar, Earthstar Geographics',
 });
 
-// Tested fallback: Esri World Imagery (also standard Web Mercator XYZ)
-const esriFallbackLayer = L.tileLayer(
-  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-  { maxZoom: 19, attribution: '© Esri, Maxar, Earthstar Geographics' }
+// Fallback basemap layer if satellite tiles fail
+const fallbackLayer = L.tileLayer(
+  'https://cdnil.govmap.gov.il/xyz/heb/{z}/{x}/{y}.png',
+  { maxZoom: 19, maxNativeZoom: 19, attribution: '© Survey of Israel — GovMap' }
 );
 ```
 
-**Phase 1 verification checklist (ADR-004):**
-1. Fetch a sample tile over Israel (e.g. `z=10, x=612, y=416`, Jerusalem) and confirm HTTP 200 and the image content type.
-2. Look at it: aerial photograph vs. street map. If it is not imagery, look for the correct govmap imagery service; otherwise the Esri layer is the primary satellite source and this is documented as a known limitation.
-3. Determine the tile grid: the standard Web Mercator pyramid works as plain XYZ. If the service exposes a national-grid (ITM, EPSG:2039) or custom-resolution tile matrix, plain XYZ would be misaligned — see §11.6 for the custom-CRS consequence.
-4. Check access constraints (domain whitelisting, token parameter, CORS/hotlinking, usage terms) from `localhost` and from a non-localhost origin.
-5. Record the URL, native zoom range, CRS and constraints in ADR-004 and set `VITE_SATELLITE_TILE_URL` / `maxNativeZoom` accordingly.
+**Phase 1 verification findings summary (ADR-004):**
+1. Tested sample tile over Israel (`z=10, x=612, y=416`): responded HTTP 200 with PNG content type.
+2. Visual and metadata inspection: verified as vector street basemap, **not** aerial/satellite photography.
+3. Tile grid: Web Mercator (EPSG:3857), eliminating the need for client-side ITM (EPSG:2039) reprojection via `proj4`.
+4. Decision outcome: Esri World Imagery configured as primary satellite layer (`VITE_SATELLITE_TILE_URL` default); GovMap retained as fallback; limitation documented in HLD, ADR-004, and README.
 
 ### 11.5 WebSocket State Machine
 
@@ -1400,7 +1402,7 @@ Unit tests use `fakeredis` (Pub/Sub and Streams supported); integration and mult
 
 - **Dataset:** `scripts/seed_db.py --polygons 10000` (and a 100 000 stress run) generates realistic polygons across Israel.
 - **Query benchmark:** `EXPLAIN (ANALYZE, BUFFERS)` and latency percentiles for the viewport query at several zooms; results and index evidence recorded in `docs/performance.md`.
-- **WebSocket load test:** `loadtest/ws_collab.js` (k6) — N virtual users obtain tickets, connect, stream drawing deltas and cursors, and measure end-to-end fan-out latency and dropped-message counters, against `docker compose up` with 2 backend replicas. Scenarios: 50 / 100 / 200 users.
+- **WebSocket load test:** `loadtest/ws_collab.js` (k6) — N virtual users obtain tickets, connect, stream drawing deltas and cursors, and measure end-to-end fan-out latency and dropped-message counters, against `docker compose up --scale backend=2` (or `./scripts/setup.sh`) with 2 backend replicas. Scenarios: 50 / 100 / 200 users.
 - Reported numbers are measured on the developer machine and labelled as such; §15 lists targets, not results.
 
 ---
@@ -1989,7 +1991,7 @@ TASK:
      latency, with and without the Redis cache
    - loadtest/ws_collab.js (k6): virtual users obtain tickets, connect, stream drawing deltas and
      cursors, measure fan-out latency and dropped-message counters; scenarios of 50 / 100 / 200 users
-     against `docker compose up` with 2 backend replicas
+     against `docker compose up --scale backend=2` (or `./scripts/setup.sh`) with 2 backend replicas
    - Record results, hardware, and caveats in docs/performance.md; update the estimates in HLD §15
      to "measured" where you have numbers, otherwise leave them labelled as targets
 
@@ -2021,7 +2023,7 @@ TASK:
    - redis: redis:7-alpine, volume, healthcheck
    - migrate: one-shot (alembic upgrade head); backend waits for it with
      depends_on: condition: service_completed_successfully
-   - backend: build ./backend, TWO replicas (deploy.replicas: 2), each with a distinct INSTANCE_ID
+   - backend: build ./backend, TWO replicas (deploy.replicas: 2; launched with `--scale backend=2` or `./scripts/setup.sh` to guarantee 2 replicas across Compose versions), each with a distinct INSTANCE_ID
      (container hostname), env from .env.example, depends_on migrate + redis healthy
    - frontend: build ./frontend (nginx serving the built React app)
    - nginx: /api/* and /ws → backend upstream (least_conn), / → frontend, TLS-ready
@@ -2060,7 +2062,7 @@ TASK:
    - Environment variables guide, API docs (OpenAPI/Swagger at /docs)
 
 DELIVERABLES:
-- `docker compose up` → all services healthy, two backend replicas running
+- `docker compose up --scale backend=2` (or `./scripts/setup.sh`) → all services healthy, two backend replicas running
 - Two browser sessions landing on different replicas still see each other's drawings
 - nginx routes correctly (test with curl, including the WebSocket upgrade)
 - CI workflow passes on a clean checkout
@@ -2133,7 +2135,7 @@ alembic revision --autogenerate -m "describe_change"
 
 | Item | Status | Future Plan |
 |---|---|---|
-| govmap satellite tiles | ⚠️ Endpoint, imagery type, CRS and access rules verified in Phase 1 (ADR-004); may require domain whitelisting in production | Esri World Imagery is the tested fallback; outcome documented in README |
+| govmap satellite tiles | ⚠️ Evaluated in Phase 1 (ADR-004); govmap XYZ endpoint provides street vector basemap rather than aerial imagery | Esri World Imagery is implemented as the primary satellite layer; GovMap/OSM available as fallback; documented in README and ADR-004 |
 | Real-time OT/CRDT | OCC only; edits of one area are arbitrated per save | Yjs/Automerge for vertex-level merge |
 | Edit-intent indicators | Not implemented (conflicts are detected at save or via `AREA_UPDATED`) | Advisory "user X is editing" markers to prevent conflicts earlier |
 | Mobile touch drawing | Not optimized | Touch gestures for vertex placement |

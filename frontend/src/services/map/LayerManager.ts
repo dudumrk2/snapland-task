@@ -22,13 +22,15 @@ export class LayerManager {
   // Clean OpenStreetMap tile URL (no deprecated {s} subdomain)
   private static readonly OSM_URL =
     'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-  private static readonly GOVMAP_URL =
+  // Primary satellite imagery layer (ADR-004)
+  private static readonly SATELLITE_URL =
     (typeof import.meta !== 'undefined' &&
       import.meta.env &&
       import.meta.env.VITE_SATELLITE_TILE_URL) ||
-    'https://cdnil.govmap.gov.il/xyz/heb/{z}/{x}/{y}.png';
-  private static readonly ESRI_URL =
     'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+  // Fallback basemap layer if satellite tiles fail
+  private static readonly GOVMAP_FALLBACK_URL =
+    'https://cdnil.govmap.gov.il/xyz/heb/{z}/{x}/{y}.png';
 
   constructor(options?: LayerManagerOptions) {
     this.onFallbackCallback = options?.onFallback;
@@ -142,16 +144,16 @@ export class LayerManager {
     // Satellite
     if (forceFallback || this.isUsingFallback) {
       this.isUsingFallback = true;
-      return L.tileLayer(LayerManager.ESRI_URL, {
+      return L.tileLayer(LayerManager.GOVMAP_FALLBACK_URL, {
         maxZoom: 19,
-        attribution: '© Esri, Maxar, Earthstar Geographics',
+        maxNativeZoom: 19,
+        attribution: '© Survey of Israel — GovMap',
       });
     }
 
-    return L.tileLayer(LayerManager.GOVMAP_URL, {
+    return L.tileLayer(LayerManager.SATELLITE_URL, {
       maxZoom: 19,
-      maxNativeZoom: 19,
-      attribution: '© Survey of Israel — GovMap',
+      attribution: '© Esri, Maxar, Earthstar Geographics',
     });
   }
 
@@ -213,7 +215,7 @@ export class LayerManager {
     this.pendingTileLayer = fallbackLayer;
 
     if (this.onFallbackCallback) {
-      this.onFallbackCallback('GovMap satellite unavailable, switched to Fallback (Esri World Imagery)');
+      this.onFallbackCallback('Satellite imagery unavailable, switched to Fallback (GovMap)');
     }
   }
 

@@ -96,7 +96,7 @@ This brings up:
 | `REFRESH_TOKEN_EXPIRE_DAYS` | No | `7` | Lifetime in days for refresh token families. |
 | `INSTANCE_ID` | No | Auto-generated | Unique identifier for the backend process instance (included in logs and presence frames). |
 | `WS_ALLOWED_ORIGINS` | No | `*` | Allowed CORS and WebSocket origin whitelist (comma-separated). |
-| `MAX_AREA_KM2` | No | `1000.0` | Maximum allowable polygon surface area in square kilometers. |
+| `MAX_AREA_KM2` | No | `25000.0` | Maximum allowable polygon surface area in square kilometers (~Israel territory). |
 | `MAX_POLYGON_VERTICES` | No | `1000` | Maximum number of coordinate vertices permitted per polygon. |
 
 ---
@@ -121,7 +121,7 @@ Interactive OpenAPI documentation is accessible at `/docs` (Swagger UI) and `/re
 - `POST /api/v1/auth/ws-ticket` — Generate a single-use 30-second ticket for authenticating WebSocket connections.
 
 ### Spatial Areas
-- `GET /api/v1/areas` — Query polygons within a bounding box (`min_lat`, `min_lng`, `max_lat`, `max_lng`, `zoom`, `limit`). Employs PostGIS GiST index and Redis L2 tile caching.
+- `GET /api/v1/areas` — Query polygons within a bounding box (`min_lat`, `min_lng`, `max_lat`, `max_lng`, `zoom`, `limit`). Requires Bearer authentication. Employs PostGIS GiST index and Redis L2 tile caching.
 - `GET /api/v1/areas/{id}` — Retrieve a single area by UUID.
 - `POST /api/v1/areas` — Create a new polygon. Validates geometry topology (`ST_IsValid`) and calculates geodesic area (`ST_Area`).
 - `PUT /api/v1/areas/{id}` — Update area geometry or name using Optimistic Concurrency Control (`version` check).
