@@ -32,6 +32,14 @@ export const DrawingLayer: React.FC<DrawingLayerProps> = ({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   const activeLineRef = useRef<L.Polyline | null>(null);
   const closingLineRef = useRef<L.Polyline | null>(null);
   const vertexMarkersGroupRef = useRef<L.LayerGroup | null>(null);
@@ -215,14 +223,18 @@ export const DrawingLayer: React.FC<DrawingLayerProps> = ({
     setIsSubmitting(true);
     try {
       await saveDrawing(areaName.trim());
-      setAreaName('');
+      if (isMountedRef.current) {
+        setAreaName('');
+      }
     } catch (err: unknown) {
-      if (!(err instanceof DrawingAbortedError)) {
+      if (isMountedRef.current && !(err instanceof DrawingAbortedError)) {
         const msg = err instanceof Error ? err.message : 'Failed to save area';
         setSaveError(msg);
       }
     } finally {
-      setIsSubmitting(false);
+      if (isMountedRef.current) {
+        setIsSubmitting(false);
+      }
     }
   };
 

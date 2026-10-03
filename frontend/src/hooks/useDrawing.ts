@@ -15,6 +15,8 @@ export interface UseDrawingOptions {
   onPolygonCreated?: (coordinates: Coordinate[]) => void;
 }
 
+export const COMMIT_TIMEOUT_MS = 8000;
+
 export class DrawingAbortedError extends Error {
   constructor(message: string = 'Drawing was aborted') {
     super(message);
@@ -35,6 +37,7 @@ export function useDrawing(options?: UseDrawingOptions) {
   const isDrawingRef = useRef<boolean>(false);
   const pointsRef = useRef<Coordinate[]>([]);
   const shapeIdRef = useRef<string | null>(null);
+  const submittedShapeIdsRef = useRef<Set<string>>(new Set());
   const seqRef = useRef<number>(0);
   const lastUpdateSentRef = useRef<number>(0);
   const pendingAppendRef = useRef<Coordinate[]>([]);
@@ -60,6 +63,7 @@ export function useDrawing(options?: UseDrawingOptions) {
     }
     const shapeId = `shape-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     shapeIdRef.current = shapeId;
+    submittedShapeIdsRef.current.clear();
     seqRef.current = 0;
     fromIndexRef.current = 0;
     pendingAppendRef.current = [];
@@ -213,14 +217,16 @@ export function useDrawing(options?: UseDrawingOptions) {
       // and broadcasts AREA_SAVED with shapeId (HLD §9.1)
       // In degraded/polling mode: persist directly via HTTP POST (Task 8 / HLD §12.1)
       if (wsService.connectionState === 'connected' && currentShapeId) {
+        submittedShapeIdsRef.current.add(currentShapeId);
         return new Promise<Area | void>((resolve, reject) => {
           const timeoutId = setTimeout(() => {
             if (pendingCommitRef.current?.shapeId === currentShapeId) {
               pendingCommitRef.current = null;
-              // Reject on timeout so points and modal remain open; no duplicate area creation
+              // Generate fresh shapeId for next retry so retries do not conflict
+              shapeIdRef.current = `shape-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
               reject(new Error('Save timed out. Please try again.'));
             }
-          }, 8000);
+          }, COMMIT_TIMEOUT_MS);
 
           pendingCommitRef.current = {
             shapeId: currentShapeId,
@@ -249,6 +255,7 @@ export function useDrawing(options?: UseDrawingOptions) {
                 setIsDrawing(false);
                 setPoints([]);
                 shapeIdRef.current = null;
+                submittedShapeIdsRef.current.clear();
                 resolve(createdArea);
               })
               .catch(reject);
@@ -261,6 +268,7 @@ export function useDrawing(options?: UseDrawingOptions) {
         setIsDrawing(false);
         setPoints([]);
         shapeIdRef.current = null;
+        submittedShapeIdsRef.current.clear();
         return createdArea;
       }
     },
@@ -270,13 +278,18 @@ export function useDrawing(options?: UseDrawingOptions) {
   // If an AREA_SAVED arrives with local shapeId, replace local preview with saved area
   useEffect(() => {
     const unsubSaved = wsService.on('AREA_SAVED', (payload) => {
-      if (payload.shapeId && payload.shapeId === shapeIdRef.current) {
-        if (pendingCommitRef.current?.shapeId === payload.shapeId) {
-          clearTimeout(pendingCommitRef.current.timeoutId);
-          pendingCommitRef.current.resolve(payload.area);
+      const isCurrentShape = payload.shapeId && payload.shapeId === shapeIdRef.current;
+      const isSubmittedShape = payload.shapeId && submittedShapeIdsRef.current.has(payload.shapeId);
+
+      if (isCurrentShape || isSubmittedShape) {
+        const pending = pendingCommitRef.current;
+        if (pending && pending.shapeId === payload.shapeId) {
+          clearTimeout(pending.timeoutId);
+          pending.resolve(payload.area);
           pendingCommitRef.current = null;
         }
         shapeIdRef.current = null;
+        submittedShapeIdsRef.current.clear();
         isDrawingRef.current = false;
         setIsDrawing(false);
         setPoints([]);
@@ -288,8 +301,11 @@ export function useDrawing(options?: UseDrawingOptions) {
     const unsubError = wsService.on('ERROR', (payload) => {
       if (pendingCommitRef.current) {
         // If error specifies a shapeId, ignore if it belongs to a different shape
-        const errShapeId = (payload as { shapeId?: string }).shapeId;
-        if (errShapeId && errShapeId !== pendingCommitRef.current.shapeId) {
+        if (payload.shapeId && payload.shapeId !== pendingCommitRef.current.shapeId) {
+          return;
+        }
+        // If error specifies refType that is NOT DRAW_COMMIT, ignore (e.g. rate limit on cursor or delta)
+        if (payload.refType && payload.refType !== 'DRAW_COMMIT') {
           return;
         }
 
@@ -299,6 +315,8 @@ export function useDrawing(options?: UseDrawingOptions) {
           const retrySec = payload.retryAfterMs ? Math.ceil(payload.retryAfterMs / 1000) : 1;
           errMsg = payload.message || `Rate limited. Please retry in ${retrySec}s.`;
         }
+        // Generate fresh shapeId for next retry
+        shapeIdRef.current = `shape-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
         pendingCommitRef.current.reject(new Error(errMsg));
         pendingCommitRef.current = null;
       }

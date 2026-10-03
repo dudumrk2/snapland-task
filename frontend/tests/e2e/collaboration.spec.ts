@@ -28,8 +28,8 @@ test.describe('Real-Time Collaboration', () => {
 
       // User B should see remote drawing deltas / preview in collaborationPane
       await expect(
-        pageB.locator('.leaflet-pane.leaflet-collaboration-pane path')
-      ).toBeVisible({ timeout: 6000 });
+        pageB.locator('.leaflet-pane.leaflet-collaboration-pane path[stroke="#8b5cf6"]')
+      ).toBeAttached({ timeout: 6000 });
 
       // User A finishes drawing and saves
       await mapA.click({ position: { x: 350, y: 250 } });

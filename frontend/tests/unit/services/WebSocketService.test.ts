@@ -189,9 +189,11 @@ describe('RealWebSocketService', () => {
     // Simulate continuing failures without messages (failures 2, 3, 4, 5)
     // to verify consecutiveFailures escalates all the way to 'polling'
     for (let failCount = 2; failCount <= 5; failCount++) {
-      // Advance timers until backoff timer fires and reconnect completes
-      while (wsService.connectionState !== 'connected') {
+      // Advance timers until backoff timer fires and reconnect completes (bounded to 200 ticks = 40s)
+      let iterations = 0;
+      while (wsService.connectionState !== 'connected' && iterations < 200) {
         await vi.advanceTimersByTimeAsync(200);
+        iterations++;
       }
       expect(wsService.connectionState).toBe('connected');
       const s = (wsService as unknown as { socket: MockWebSocket }).socket;

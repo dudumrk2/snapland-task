@@ -29,7 +29,7 @@ export interface WsPayloadMap {
   USER_LEFT:    { userId: string };
   PRESENCE_SNAPSHOT: { users: PresenceUser[] };
   RESYNC_REQUIRED: Record<string, never>;
-  ERROR:        { code: string; message: string; retryAfterMs?: number };
+  ERROR:        { code: string; message: string; retryAfterMs?: number; shapeId?: string; refType?: ClientMessageType };
 }
 
 export interface WsMessage<T extends WsMessageType = WsMessageType> {

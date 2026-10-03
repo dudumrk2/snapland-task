@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useDrawing } from '../../../src/hooks/useDrawing';
+import { useDrawing, COMMIT_TIMEOUT_MS } from '../../../src/hooks/useDrawing';
 import { ApiProvider } from '../../../src/providers/ApiProvider';
 import { MockAreaApi } from '../../../src/api/mock/mockAreaApi';
 import { MockWebSocketService } from '../../../src/api/mock/mockWebSocketService';
@@ -281,7 +281,7 @@ describe('useDrawing', () => {
         code: 'VALIDATION_ERROR',
         message: 'Other shape invalid',
         shapeId: 'different-shape-id-999',
-      } as unknown as { code: string; message: string });
+      });
     });
 
     // Now dispatch AREA_SAVED with the active shapeId
@@ -367,9 +367,9 @@ describe('useDrawing', () => {
 
       const assertion = expect(savePromise!).rejects.toThrow('Save timed out. Please try again.');
 
-      // Advance timers by 8000ms inside act
+      // Advance timers by COMMIT_TIMEOUT_MS inside act
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(8000);
+        await vi.advanceTimersByTimeAsync(COMMIT_TIMEOUT_MS);
       });
 
       await assertion;
@@ -378,5 +378,63 @@ describe('useDrawing', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('ignores RATE_LIMITED when refType is DRAW_UPDATE and allows saveDrawing to resolve', async () => {
+    mockWsService.connect(async () => 'ticket');
+    await new Promise((r) => setTimeout(r, 150));
+
+    const { result } = renderHook(() => useDrawing(), { wrapper });
+
+    act(() => {
+      result.current.startDrawing();
+      result.current.addPoint({ lat: 32.0, lng: 34.8 });
+      result.current.addPoint({ lat: 32.0, lng: 34.9 });
+      result.current.addPoint({ lat: 32.1, lng: 34.85 });
+      result.current.finishDrawing();
+    });
+
+    vi.spyOn(mockWsService, 'send').mockImplementation((msg) => {
+      mockWsService.sentMessages.push(msg);
+      return true;
+    });
+
+    let savePromise: Promise<unknown>;
+    act(() => {
+      savePromise = result.current.saveDrawing('Polygon With Delta Rate Limit');
+    });
+
+    // Dispatch RATE_LIMITED specifically for a DRAW_UPDATE action
+    act(() => {
+      mockWsService.dispatch('ERROR', {
+        code: 'RATE_LIMITED',
+        message: 'Rate limit exceeded on DRAW_UPDATE',
+        retryAfterMs: 1000,
+        refType: 'DRAW_UPDATE',
+      });
+    });
+
+    // Save promise should NOT be rejected by a DRAW_UPDATE rate limit!
+    const activeShapeId = (mockWsService.sentMessages.find((m) => m.type === 'DRAW_COMMIT')?.payload as { shapeId: string }).shapeId;
+    act(() => {
+      mockWsService.dispatch('AREA_SAVED', {
+        shapeId: activeShapeId,
+        area: {
+          id: 'area-delta-rl',
+          name: 'Polygon With Delta Rate Limit',
+          coordinates: result.current.points,
+          areaKm2: 2.1,
+          version: 1,
+          createdBy: 'user-1',
+          lastEditedBy: 'user-1',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    });
+
+    await expect(savePromise!).resolves.toBeDefined();
+    expect(result.current.isSaveModalOpen).toBe(false);
+    expect(result.current.points).toHaveLength(0);
   });
 });
