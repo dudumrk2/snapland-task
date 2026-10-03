@@ -1,8 +1,10 @@
 import uuid
 
 from fastapi import APIRouter, Cookie, Depends, Request, Response
+import structlog
 
 from snapland.api.deps import get_auth_service, get_rate_limiter
+from snapland.config import settings
 from snapland.core.domain.exceptions import AuthError
 from snapland.core.domain.user import LoginRequest, RegisterRequest, TokenResponse, User
 from snapland.core.interfaces.services import IAuthService, IRateLimiter
@@ -22,10 +24,8 @@ async def get_current_user_id(request: Request, auth_svc: IAuthService = Depends
     if not auth or not auth.startswith("Bearer "):
         raise AuthError("Missing or invalid token")
     token = auth.split(" ")[1]
-    from snapland.config import settings
     try:
         user_id = auth_svc.verify_access_token(token, settings.JWT_PUBLIC_KEY)
-        import structlog
         structlog.contextvars.bind_contextvars(user_id=str(user_id))
         return user_id
     except Exception:

@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 import typing
 
@@ -43,8 +44,12 @@ async def health_ready(request: Request, response: Response) -> typing.Any:
             db_engine = engine
 
         from sqlalchemy import text
-        async with db_engine.connect() as conn:
-            await conn.execute(text("SELECT 1"))
+
+        async def _check_db():
+            async with db_engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+
+        await asyncio.wait_for(_check_db(), timeout=5.0)
     except Exception as e:
         log.error("DB health check failed", error=str(e))
         db_status = "down"
@@ -54,7 +59,7 @@ async def health_ready(request: Request, response: Response) -> typing.Any:
     try:
         redis_client = getattr(request.app.state, "redis", None)
         if redis_client:
-            await redis_client.ping()
+            await asyncio.wait_for(redis_client.ping(), timeout=5.0)
     except Exception as e:
         log.error("Redis health check failed", error=str(e))
         redis_status = "down"
@@ -89,7 +94,8 @@ async def health_db(request: Request) -> typing.Any:
         db_engine = engine
 
     from sqlalchemy import text
-    try:
+
+    async def _explain_query() -> str:
         async with db_engine.connect() as conn:
             async with conn.begin():
                 # Set enable_seqscan = off locally in transaction to force index usage if possible
@@ -104,12 +110,14 @@ async def health_db(request: Request) -> typing.Any:
                     LIMIT 501
                 """)
                 result = await conn.execute(query)
-                plan = "\n".join([row[0] for row in result.fetchall()])
+                return "\n".join([row[0] for row in result.fetchall()])
 
-                if "areas_geom_gist" in plan:
-                    return {"status": "ok", "index_used": "areas_geom_gist", "plan": plan}
-                else:
-                    return JSONResponse(status_code=500, content={"status": "error", "message": "Spatial index not used", "plan": plan})
+    try:
+        plan = await asyncio.wait_for(_explain_query(), timeout=5.0)
+        if "areas_geom_gist" in plan:
+            return {"status": "ok", "index_used": "areas_geom_gist", "plan": plan}
+        else:
+            return JSONResponse(status_code=500, content={"status": "error", "message": "Spatial index not used", "plan": plan})
     except Exception as e:
         log.error("DB index check failed", error=str(e))
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})

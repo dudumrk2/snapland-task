@@ -32,7 +32,7 @@ http_request_duration_seconds: Histogram = _get_or_create_metric(
     Histogram,
     "http_request_duration_seconds",
     "HTTP request duration in seconds",
-    ("method", "route"),
+    ("method", "route", "status"),
 )
 
 ws_connections_active: Gauge = _get_or_create_metric(
@@ -139,7 +139,7 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
             route = get_route_template(request)
             try:
                 http_requests_total.labels(method=method, route=route, status=str(status_code)).inc()
-                http_request_duration_seconds.labels(method=method, route=route).observe(duration)
+                http_request_duration_seconds.labels(method=method, route=route, status=str(status_code)).observe(duration)
             except Exception:
                 pass
 

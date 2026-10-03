@@ -65,12 +65,20 @@ class CursorMoveClientMessage(BaseModel):
     type: Literal["CURSOR_MOVE"] = "CURSOR_MOVE"
     payload: CursorMoveClientPayload
 
+class PingMessage(BaseModel):
+    type: Literal["PING"] = "PING"
+
+class PongMessage(BaseModel):
+    type: Literal["PONG"] = "PONG"
+
 ClientMessage = (
     DrawStartMessage
     | DrawUpdateMessage
     | DrawCommitMessage
     | DrawCancelMessage
     | CursorMoveClientMessage
+    | PingMessage
+    | PongMessage
 )
 
 # ---------------------------------------------------------
@@ -174,4 +182,6 @@ ServerMessage = (
     | UserLeftMessage
     | ResyncRequiredMessage
     | ErrorMessage
+    | PingMessage
+    | PongMessage
 )

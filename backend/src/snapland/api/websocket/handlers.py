@@ -56,7 +56,13 @@ async def dispatch_message(conn: Connection, raw_data: str, app_state: Any) -> N
         return
 
     conn.last_received_time = time.monotonic()
+    conn.last_pong_time = time.monotonic()
+    conn.last_ping_time = None
+
     if msg_type in ("PING", "PONG"):
+        if msg_type == "PING":
+            from snapland.core.domain.ws_messages import PongMessage
+            await conn.enqueue(PongMessage())
         return
 
     # Track inbound message metrics and structured log (type only, no coordinates or sensitive payloads)

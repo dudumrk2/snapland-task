@@ -25,16 +25,20 @@ def _get_or_create_dev_keys() -> tuple[str, str]:
     priv_path = temp_dir / "snapland_dev_jwt_priv.pem"
     pub_path = temp_dir / "snapland_dev_jwt_pub.pem"
 
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
     if priv_path.exists() and pub_path.exists():
         try:
-            return priv_path.read_text(encoding="utf-8"), pub_path.read_text(encoding="utf-8")
+            priv_content = priv_path.read_text(encoding="utf-8")
+            pub_content = pub_path.read_text(encoding="utf-8")
+            serialization.load_pem_private_key(priv_content.encode("utf-8"), password=None)
+            serialization.load_pem_public_key(pub_content.encode("utf-8"))
+            return priv_content, pub_content
         except Exception:
             pass
 
     try:
-        from cryptography.hazmat.primitives import serialization
-        from cryptography.hazmat.primitives.asymmetric import rsa
-
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         priv_pem = key.private_bytes(
             encoding=serialization.Encoding.PEM,
@@ -46,12 +50,24 @@ def _get_or_create_dev_keys() -> tuple[str, str]:
             format=serialization.PublicFormat.SubjectPublicKeyInfo,
         ).decode("utf-8")
 
-        # Atomic write to shared temp location
-        priv_path.write_text(priv_pem, encoding="utf-8")
-        pub_path.write_text(pub_pem, encoding="utf-8")
+        # Atomic write to temporary files with secure permissions (0o600 for private key)
+        priv_tmp = priv_path.with_suffix(f".tmp.{uuid.uuid4().hex[:6]}")
+        pub_tmp = pub_path.with_suffix(f".tmp.{uuid.uuid4().hex[:6]}")
+
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+        fd_priv = os.open(str(priv_tmp), flags, 0o600)
+        with open(fd_priv, "w", encoding="utf-8", closefd=True) as f:
+            f.write(priv_pem)
+
+        fd_pub = os.open(str(pub_tmp), flags, 0o644)
+        with open(fd_pub, "w", encoding="utf-8", closefd=True) as f:
+            f.write(pub_pem)
+
+        os.replace(priv_tmp, priv_path)
+        os.replace(pub_tmp, pub_path)
         return priv_pem, pub_pem
-    except Exception:
-        return "", ""
+    except Exception as e:
+        raise RuntimeError(f"Failed to generate dev JWT keys: {e}") from e
 
 
 class Settings(BaseSettings):
@@ -79,7 +95,7 @@ class Settings(BaseSettings):
         if v.startswith("postgresql://"):
             return v.replace("postgresql://", "postgresql+asyncpg://", 1)
         if v.startswith("postgres://"):
-            return v.replace("postgres://", "postgres+asyncpg://", 1)
+            return v.replace("postgres://", "postgresql+asyncpg://", 1)
         return v
 
     @model_validator(mode="after")

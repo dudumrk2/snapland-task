@@ -121,3 +121,21 @@ async def test_dispatch_draw_commit_calls_create_area_with_shape_id(mock_conn, m
     assert req.name == "My Park"
     assert req.shape_id == "shape-abc"
     assert uid == mock_conn.user_id
+
+
+@pytest.mark.asyncio
+async def test_dispatch_ping_replies_with_pong(mock_conn, mock_app_state):
+    raw = '{"type":"PING"}'
+    await dispatch_message(mock_conn, raw, mock_app_state)
+    mock_conn.enqueue.assert_called_once()
+    msg = mock_conn.enqueue.call_args[0][0]
+    assert msg.type == "PONG"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_pong_updates_keepalive_timestamps(mock_conn, mock_app_state):
+    mock_conn.last_ping_time = 123.0
+    raw = '{"type":"PONG"}'
+    await dispatch_message(mock_conn, raw, mock_app_state)
+    assert mock_conn.last_ping_time is None
+    assert mock_conn.last_pong_time > 0

@@ -22,7 +22,7 @@ logger = structlog.get_logger(__name__)
 DURABLE_TYPES = frozenset({"AREA_SAVED", "AREA_UPDATED", "AREA_DELETED"})
 # Messages that must never be evicted from the queue — dropping them would leave the
 # client silently stale (RESYNC_REQUIRED) or never getting an error feedback.
-PROTECTED_TYPES = frozenset({"RESYNC_REQUIRED", "PRESENCE_SNAPSHOT", "ERROR"})
+PROTECTED_TYPES = frozenset({"RESYNC_REQUIRED", "PRESENCE_SNAPSHOT", "ERROR", "PING", "PONG"})
 
 # Maintain module-level alias for backwards compatibility with tests
 WS_MESSAGES_DROPPED_TOTAL = ws_messages_dropped_total
@@ -101,6 +101,8 @@ class Connection:
         self.last_cursor_time: float = 0.0
         self.last_draw_stream_rate_limit_error: float = 0.0
         self.last_received_time: float = time.monotonic()
+        self.last_ping_time: Optional[float] = None
+        self.last_pong_time: float = time.monotonic()
         self.seen_event_ids: collections.deque[str] = collections.deque(maxlen=500)
         self._close_tasks: set[asyncio.Task[Any]] = set()
 
@@ -214,22 +216,61 @@ class WebSocketManager:
                 await self.disconnect(conn.conn_id)
 
     async def _writer(self, conn: Connection):
-        PING_INTERVAL = 25.0  # send keep-alive probe after this many seconds idle
+        PING_INTERVAL = 30.0  # send keep-alive ping every 30s
+        PONG_TIMEOUT = 10.0   # close if no pong within 10s
+
+        next_ping_time = time.monotonic() + PING_INTERVAL
 
         try:
             while not conn.closed:
-                try:
-                    msg = await asyncio.wait_for(conn.queue.get(), timeout=PING_INTERVAL)
-                except asyncio.TimeoutError:
-                    # No message for PING_INTERVAL seconds — send empty batch as keep-alive probe
-                    try:
-                        await conn.websocket.send_text("[]")
-                    except Exception:
+                now = time.monotonic()
+
+                # Check if waiting for pong has exceeded timeout
+                if conn.last_ping_time is not None:
+                    if now - conn.last_ping_time > PONG_TIMEOUT:
+                        logger.info("WebSocket keepalive pong timeout, closing connection", conn_id=conn.conn_id)
                         conn.closed = True
+                        try:
+                            await conn.websocket.close(code=1001, reason="pong_timeout")
+                        except Exception:
+                            pass
                         return
-                    continue
+                    wait_timeout = max(0.01, PONG_TIMEOUT - (now - conn.last_ping_time))
+                else:
+                    wait_timeout = max(0.01, next_ping_time - now)
+
+                try:
+                    msg = await asyncio.wait_for(conn.queue.get(), timeout=wait_timeout)
+                except asyncio.TimeoutError:
+                    now = time.monotonic()
+                    if conn.last_ping_time is not None:
+                        logger.info("WebSocket keepalive pong timeout, closing connection", conn_id=conn.conn_id)
+                        conn.closed = True
+                        try:
+                            await conn.websocket.close(code=1001, reason="pong_timeout")
+                        except Exception:
+                            pass
+                        return
+                    else:
+                        # Time to send PING frame
+                        conn.last_ping_time = now
+                        next_ping_time = now + PING_INTERVAL
+                        try:
+                            await conn.websocket.send_text(orjson.dumps([{"type": "PING"}]).decode("utf-8"))
+                        except Exception:
+                            conn.closed = True
+                            return
+                        continue
 
                 batch = [msg]
+
+                # If time to ping coincides with outbound data batch, include PING frame
+                now = time.monotonic()
+                if conn.last_ping_time is None and now >= next_ping_time:
+                    conn.last_ping_time = now
+                    next_ping_time = now + PING_INTERVAL
+                    from snapland.core.domain.ws_messages import PingMessage
+                    batch.append(PingMessage())
 
                 is_durable = msg.type in DURABLE_TYPES
                 if not is_durable:
