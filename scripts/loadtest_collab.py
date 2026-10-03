@@ -105,7 +105,7 @@ async def simulate_user(ws_url: str, session: aiohttp.ClientSession, ticket: str
                             "payload": {
                                 "lat": lat,
                                 "lng": lng,
-                                "sent_at": time.time(),
+                                "sentAt": time.time(),
                             },
                         }
                         await ws.send_str(json.dumps(msg))
@@ -125,10 +125,19 @@ async def simulate_user(ws_url: str, session: aiohttp.ClientSession, ticket: str
                                 for item in items:
                                     if item.get("type") == "ERROR" and item.get("payload", {}).get("code") == "RATE_LIMITED":
                                         stats["messages_dropped"] += 1
-                                    elif item.get("payload", {}).get("sent_at"):
-                                        latency_ms = (time.time() - item["payload"]["sent_at"]) * 1000.0
-                                        if 0 <= latency_ms < 5000:
-                                            stats["fanout_latencies"].append(latency_ms)
+                                    else:
+                                        payload = item.get("payload", {})
+                                        sent_at = payload.get("sentAt") or payload.get("sent_at")
+                                        if sent_at is not None:
+                                            try:
+                                                s_val = float(sent_at)
+                                                if s_val > 1e11:
+                                                    s_val = s_val / 1000.0
+                                                latency_ms = (time.time() - s_val) * 1000.0
+                                                if 0 <= latency_ms < 5000:
+                                                    stats["fanout_latencies"].append(latency_ms)
+                                            except (ValueError, TypeError):
+                                                pass
                             except Exception:
                                 pass
                         elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):

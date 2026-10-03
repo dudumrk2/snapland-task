@@ -204,7 +204,7 @@ async def benchmark_viewport_queries():
             plan_lines = [r[0] for r in res.fetchall()]
             plan_text = "\n".join(plan_lines)
             print("Query Plan:")
-            for line in plan_lines[:6]:
+            for line in plan_lines:
                 print(f"  {line}")
 
             # Extract index scanned from plan

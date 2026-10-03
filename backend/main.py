@@ -36,34 +36,35 @@ from snapland.middleware.request_id import RequestIdMiddleware
 from snapland.middleware.timeout import TimeoutMiddleware
 
 
+def censor_and_normalize(logger, method_name, event_dict):
+    # 1. Normalize message field
+    if "message" not in event_dict and "event" in event_dict:
+        event_dict["message"] = event_dict.pop("event")
+    elif "event" in event_dict and "message" in event_dict:
+        event_dict.pop("event")
+
+    # 2. Guarantee instance_id
+    if "instance_id" not in event_dict:
+        event_dict["instance_id"] = settings.INSTANCE_ID
+
+    # 3. Standard correlation IDs
+    if "conn_id" not in event_dict and "request_id" not in event_dict:
+        event_dict["request_id"] = None
+    if "user_id" not in event_dict:
+        event_dict["user_id"] = None
+
+    # 4. Redact sensitive patterns (passwords, tokens, tickets, cookies, auth)
+    sensitive_patterns = ("password", "token", "ticket", "cookie", "secret", "authorization")
+    for key in list(event_dict.keys()):
+        k_lower = key.lower()
+        if any(s in k_lower for s in sensitive_patterns) and not key.endswith("_id") and key != "last_event_id":
+            event_dict[key] = "[REDACTED]"
+
+    return event_dict
+
+
 def setup_logging():
     level = logging.INFO if settings.ENVIRONMENT in ("production", "staging") else logging.DEBUG
-
-    def censor_and_normalize(logger, method_name, event_dict):
-        # 1. Normalize message field
-        if "message" not in event_dict and "event" in event_dict:
-            event_dict["message"] = event_dict.pop("event")
-        elif "event" in event_dict and "message" in event_dict:
-            event_dict.pop("event")
-
-        # 2. Guarantee instance_id
-        if "instance_id" not in event_dict:
-            event_dict["instance_id"] = settings.INSTANCE_ID
-
-        # 3. Standard correlation IDs
-        if "conn_id" not in event_dict and "request_id" not in event_dict:
-            event_dict["request_id"] = None
-        if "user_id" not in event_dict:
-            event_dict["user_id"] = None
-
-        # 4. Redact sensitive patterns (passwords, tokens, tickets, cookies, auth)
-        sensitive_patterns = ("password", "token", "ticket", "cookie", "secret", "authorization")
-        for key in list(event_dict.keys()):
-            k_lower = key.lower()
-            if any(s in k_lower for s in sensitive_patterns) and not key.endswith("_id") and key != "last_event_id":
-                event_dict[key] = "[REDACTED]"
-
-        return event_dict
 
     shared_processors = [
         structlog.contextvars.merge_contextvars,
@@ -158,10 +159,14 @@ async def run_ephemeral_subscriber(app: FastAPI):
     instance_id = settings.INSTANCE_ID
     ephemeral_bus: IEphemeralBus = app.state.ephemeral_bus
     manager: WebSocketManager = app.state.ws_manager
-    async for envelope in ephemeral_bus.subscribe():
-        if envelope.origin == instance_id:
-            continue
-        await manager.broadcast_ephemeral(envelope.message)
+    sub = ephemeral_bus.subscribe()
+    if hasattr(sub, "__await__") and not hasattr(sub, "__aiter__"):
+        sub = await sub
+    if hasattr(sub, "__aiter__"):
+        async for envelope in sub:
+            if envelope.origin == instance_id:
+                continue
+            await manager.broadcast_ephemeral(envelope.message)
 
 
 async def run_control_subscriber(app: FastAPI):
@@ -172,16 +177,20 @@ async def run_control_subscriber(app: FastAPI):
     if not hasattr(ephemeral_bus, "subscribe_control"):
         return
     manager: WebSocketManager = app.state.ws_manager
-    async for cmd in ephemeral_bus.subscribe_control():
-        try:
-            cmd_type = cmd.get("type")
-            if cmd_type == "logout":
-                user_id_str = cmd.get("userId")
-                if user_id_str:
-                    user_id = _uuid.UUID(user_id_str)
-                    await manager.disconnect_user(user_id)
-        except Exception as e:
-            logger.warning("Control subscriber error processing command", cmd=cmd, exc_info=e)
+    sub = ephemeral_bus.subscribe_control()
+    if hasattr(sub, "__await__") and not hasattr(sub, "__aiter__"):
+        sub = await sub
+    if hasattr(sub, "__aiter__"):
+        async for cmd in sub:
+            try:
+                cmd_type = cmd.get("type")
+                if cmd_type == "logout":
+                    user_id_str = cmd.get("userId")
+                    if user_id_str:
+                        user_id = _uuid.UUID(user_id_str)
+                        await manager.disconnect_user(user_id)
+            except Exception as e:
+                logger.warning("Control subscriber error processing command", cmd=cmd, exc_info=e)
 
 
 async def run_stream_follower(app: FastAPI):

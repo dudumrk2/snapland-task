@@ -140,11 +140,21 @@ async def dispatch_message(conn: Connection, raw_data: str, app_state: Any) -> N
         except (ValueError, TypeError):
             return
 
+        sent_at_raw = payload.get("sentAt") if "sentAt" in payload else (payload.get("sent_at") or payload.get("clientTime"))
+        sent_at_val: Optional[float] = None
+        if sent_at_raw is not None:
+            try:
+                v = float(sent_at_raw)
+                sent_at_val = v / 1000.0 if v > 1e11 else v
+            except (ValueError, TypeError):
+                pass
+
         out_msg = CursorMoveServerMessage(
             payload=CursorMoveServerPayload(
                 userId=conn.user_id,
                 lat=lat_f,
                 lng=lng_f,
+                sentAt=sent_at_val,
             )
         )
         if manager:

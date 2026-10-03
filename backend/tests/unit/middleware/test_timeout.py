@@ -23,7 +23,6 @@ def test_timeout_middleware_fast_request():
 
 def test_timeout_middleware_slow_request_returns_504():
     app = FastAPI()
-    # Use a small timeout for test speed
     app.add_middleware(TimeoutMiddleware, timeout_seconds=0.05)
 
     @app.get("/slow")
@@ -36,3 +35,25 @@ def test_timeout_middleware_slow_request_returns_504():
     assert resp.status_code == 504
     data = resp.json()
     assert data["error"]["code"] == "GATEWAY_TIMEOUT"
+
+
+def test_timeout_middleware_exempt_paths():
+    app = FastAPI()
+    app.add_middleware(TimeoutMiddleware, timeout_seconds=0.05)
+
+    @app.get("/metrics")
+    async def metrics_handler():
+        await asyncio.sleep(0.1)
+        return "metrics_content"
+
+    @app.get("/health/live")
+    async def health_handler():
+        await asyncio.sleep(0.1)
+        return {"status": "ok"}
+
+    client = TestClient(app)
+    resp1 = client.get("/metrics")
+    assert resp1.status_code == 200
+
+    resp2 = client.get("/health/live")
+    assert resp2.status_code == 200

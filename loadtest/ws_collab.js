@@ -126,7 +126,7 @@ export default function (data) {
         socket.send(
           JSON.stringify({
             type: 'CURSOR_MOVE',
-            payload: { lat: lat, lng: lng, clientTime: sentTime },
+            payload: { lat: lat, lng: lng, sentAt: sentTime, clientTime: sentTime },
           })
         );
         wsMessagesSent.add(1);
@@ -205,8 +205,11 @@ export default function (data) {
             socket.send(JSON.stringify({ type: 'PONG' }));
           } else if (item.type === 'ERROR' && item.payload && item.payload.code === 'RATE_LIMITED') {
             wsDroppedMessages.add(1);
-          } else if (item.payload && item.payload.clientTime) {
-            const fanoutMs = Date.now() - item.payload.clientTime;
+          } else if (item.payload && (item.payload.sentAt || item.payload.clientTime)) {
+            const t = item.payload.sentAt || item.payload.clientTime;
+            // Support both epoch seconds and epoch ms
+            const tMs = t < 1e11 ? t * 1000 : t;
+            const fanoutMs = Date.now() - tMs;
             if (fanoutMs >= 0 && fanoutMs < 10000) {
               wsFanoutLatency.add(fanoutMs);
             }

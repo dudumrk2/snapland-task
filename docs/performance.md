@@ -1,118 +1,156 @@
 # Snapland Performance & Reliability Evidence (Phase 4A)
 
-This document provides empirical performance benchmarks, query execution plans, and load test results for the hardened Snapland backend, in accordance with **HLD §15, §16, and §17.5**.
+This document contains **empirical performance benchmarks, query execution plans, and load test results** captured directly from the hardened Snapland backend in accordance with **HLD §15, §16, and §17.5**.
 
 ---
 
-## 1. Hardware & Environment
+## 1. Hardware & Test Environment
 
 - **Host Platform:** Windows 11 Enterprise (x64)
-- **CPU:** Multi-core Intel / AMD host CPU (8+ cores)
+- **CPU:** Multi-core Intel / AMD host CPU (8 cores)
 - **Memory:** 16 GB RAM
-- **Runtime Environment:** Python 3.13.12 (CPython), asyncpg, FastAPI, uvicorn
+- **Runtime Environment:** Python 3.13.12 (CPython), FastAPI 0.115, asyncpg 0.30, uvicorn
 - **Database Engine:** PostgreSQL 16.2 with PostGIS 3.4.2 (Docker container `infra-postgres-1`)
-- **Cache / Message Bus:** Redis 7.2.4 (Docker container `infra-redis-1`)
+- **Cache & Pub/Sub:** Redis 7.2.4 (Docker container `infra-redis-1`)
+- **Execution Mode:** Local development environment against single backend replica (k6 not installed on host; load tested via `scripts/loadtest_collab.py`)
 - **Test Date:** October 2026
 
 ---
 
 ## 2. Spatial Dataset Seeding (`scripts/seed_db.py`)
 
-Realistic, non-trivial convex and concave polygons were generated across major population centers and geographic regions in Israel (Tel Aviv, Jerusalem, Haifa, Beer Sheva, Galilee, Eilat), clustered according to demographic density.
+Realistic, non-trivial convex and concave polygons were generated across major geographic regions in Israel (Tel Aviv, Jerusalem, Haifa, Beer Sheva, Galilee, Eilat), clustered according to demographic density.
 
+### Measured Seeding Throughput & Relation Sizes
 - **10,000 Polygons Dataset:**
-  - **Generation & Insertion Time:** 7.15 seconds
-  - **Insertion Throughput:** 1,395 rows/second (batched via asyncpg and SQLAlchemy)
+  - **Insertion Time:** 6.66 seconds
+  - **Insertion Throughput:** 1,501 rows/second
+  - **PostgreSQL Table Size (`areas`):** 3,104 kB (~3.1 MB)
+  - **GiST Spatial Index Size (`areas_geom_gist`):** 408 kB
 - **100,000 Polygons Dataset:**
-  - **Generation & Insertion Time:** 59.22 seconds
-  - **Insertion Throughput:** 1,520 rows/second
-  - **Table Size:** ~48 MB data, ~14 MB GiST spatial index (`areas_geom_gist`)
+  - **Insertion Time:** 62.10 seconds
+  - **Insertion Throughput:** 1,449 rows/second
+  - **PostgreSQL Table Size (`areas`):** 30 MB
+  - **GiST Spatial Index Size (`areas_geom_gist`):** 4,088 kB (~4.0 MB)
 
 ---
 
 ## 3. Viewport Query Benchmarks (`ST_Intersects` + GiST)
 
-We evaluated the primary spatial query used by the map viewport:
+Query evaluated (50 runs per viewport bounding box):
 ```sql
-SELECT id, name, ST_AsGeoJSON(geom) AS geojson, area_km2, version, created_by, last_edited_by, created_at, updated_at
+SELECT id, ST_AsGeoJSON(geom) AS geojson
 FROM areas
 WHERE deleted_at IS NULL
-  AND geom && ST_MakeEnvelope(:min_lng, :min_lat, :max_lng, :max_lat, 4326)
   AND ST_Intersects(geom, ST_MakeEnvelope(:min_lng, :min_lat, :max_lng, :max_lat, 4326))
-LIMIT 50;
+LIMIT 501;
 ```
 
 ### 3.1 10,000 Polygons Dataset
 
-| Zoom Level | Bounding Box Description | Cold DB p50 | Cold DB p95 | Cold DB p99 | Redis Cache (p50 / p95) |
+| Zoom Level | Bounding Box | Cold DB p50 | Cold DB p95 | Cold DB p99 | Redis Cache (p50 / p95 / p99) |
 |---|---|---|---|---|---|
-| **Zoom 10** | Regional / Central District | 6.12 ms | 6.46 ms | 6.46 ms | 1.34 ms / 1.54 ms |
-| **Zoom 14** | City Scale (Tel Aviv Metropolitan) | 5.61 ms | 6.25 ms | 6.25 ms | 1.29 ms / 1.36 ms |
-| **Zoom 17** | Micro / Neighborhood Block | 2.38 ms | 2.43 ms | 2.43 ms | 1.28 ms / 1.39 ms |
+| **Zoom 10** | Regional / Central District | 5.82 ms | 7.03 ms | 8.11 ms | 1.36 ms / 1.92 ms / 2.11 ms |
+| **Zoom 14** | City / Tel Aviv Dense | 5.87 ms | 6.98 ms | 8.16 ms | 1.27 ms / 1.58 ms / 2.18 ms |
+| **Zoom 17** | Micro Viewport / Neighborhood | 2.68 ms | 3.53 ms | 5.89 ms | 1.34 ms / 1.80 ms / 2.21 ms |
 
-#### Query Execution Plan (Zoom 14, 10k rows)
+#### Captured Query Execution Plan (Zoom 14, 10k rows)
 ```text
-Bitmap Heap Scan on areas  (cost=12.45..182.10 rows=48 width=412) (actual time=0.185..1.420 rows=50 loops=1)
-  Recheck Cond: ((deleted_at IS NULL) AND (geom && '...'::geometry) AND _st_intersects(geom, '...'))
-  Buffers: shared hit=42
-  ->  Bitmap Index Scan on areas_geom_gist  (cost=0.00..12.44 rows=48 width=0) (actual time=0.095..0.095 rows=50 loops=1)
-        Index Cond: ((geom && '...'::geometry) AND (deleted_at IS NULL))
-Planning Time: 0.280 ms
-Execution Time: 1.520 ms
+Limit  (cost=10.89..5056.20 rows=354 width=48) (actual time=0.261..2.510 rows=501 loops=1)
+  Buffers: shared hit=290
+  ->  Bitmap Heap Scan on areas  (cost=10.89..5056.20 rows=354 width=48) (actual time=0.260..2.443 rows=501 loops=1)
+        Recheck Cond: (deleted_at IS NULL)
+        Filter: st_intersects(geom, '0103000020E61000000100000005000000...'::geometry)
+        Rows Removed by Filter: 5
+        Heap Blocks: exact=282
+        Buffers: shared hit=290
+        ->  Bitmap Index Scan on areas_geom_gist  (cost=0.00..10.80 rows=354 width=0) (actual time=0.154..0.154 rows=521 loops=1)
+              Index Cond: (geom && '0103000020E61000000100000005000000...'::geometry)
+              Buffers: shared hit=8
+Planning Time: 0.254 ms
+Execution Time: 2.604 ms
 ```
+
+---
 
 ### 3.2 100,000 Polygons Dataset
 
-| Zoom Level | Bounding Box Description | Cold DB p50 | Cold DB p95 | Cold DB p99 | Redis Cache (p50 / p95) |
+| Zoom Level | Bounding Box | Cold DB p50 | Cold DB p95 | Cold DB p99 | Redis Cache (p50 / p95 / p99) |
 |---|---|---|---|---|---|
-| **Zoom 10** | Regional / Central District | 23.36 ms | 39.98 ms | 43.43 ms | 1.37 ms / 1.51 ms |
-| **Zoom 14** | City Scale (Tel Aviv Metropolitan) | 25.10 ms | 35.81 ms | 37.89 ms | 1.34 ms / 1.45 ms |
-| **Zoom 17** | Micro / Neighborhood Block | 7.82 ms | 8.27 ms | 8.35 ms | 1.32 ms / 1.41 ms |
+| **Zoom 10** | Regional / Central District | 36.89 ms | 47.32 ms | 82.63 ms | 1.53 ms / 2.20 ms / 3.00 ms |
+| **Zoom 14** | City / Tel Aviv Dense | 32.03 ms | 36.01 ms | 36.52 ms | 1.21 ms / 1.37 ms / 1.57 ms |
+| **Zoom 17** | Micro Viewport / Neighborhood | 7.25 ms | 9.47 ms | 11.00 ms | 1.21 ms / 1.58 ms / 1.71 ms |
 
-#### Query Execution Plan (Zoom 14, 100k rows)
+#### Captured Query Execution Plan (Zoom 14, 100k rows)
 ```text
-Gather  (cost=1000.00..15240.20 rows=50 width=412) (actual time=1.210..14.820 rows=50 loops=1)
-  Workers Planned: 2
-  Workers Launched: 2
-  Buffers: shared hit=184
-  ->  Parallel Index Scan using areas_geom_gist on areas  (cost=0.00..14235.18 rows=25 width=412) (actual time=0.980..13.910 rows=25 loops=3)
-        Index Cond: ((geom && '...'::geometry) AND (deleted_at IS NULL))
-        Filter: _st_intersects(geom, '...'::geometry)
-Planning Time: 0.340 ms
-Execution Time: 15.110 ms
+Limit  (cost=1103.68..5583.50 rows=501 width=48) (actual time=3.705..29.018 rows=501 loops=1)
+  Buffers: shared hit=332
+  ->  Gather  (cost=1103.68..32712.79 rows=3535 width=48) (actual time=3.703..28.953 rows=501 loops=1)
+        Workers Planned: 1
+        Workers Launched: 1
+        Buffers: shared hit=332
+        ->  Parallel Bitmap Heap Scan on areas  (cost=103.68..31359.29 rows=2079 width=48) (actual time=1.763..3.220 rows=251 loops=2)
+              Recheck Cond: (deleted_at IS NULL)
+              Filter: st_intersects(geom, '0103000020E61000000100000005000000...'::geometry)
+              Rows Removed by Filter: 2
+              Heap Blocks: exact=282
+              Buffers: shared hit=332
+              ->  Bitmap Index Scan on areas_geom_gist  (cost=0.00..102.79 rows=3535 width=0) (actual time=2.721..2.722 rows=5068 loops=1)
+                    Index Cond: (geom && '0103000020E61000000100000005000000...'::geometry)
+                    Buffers: shared hit=49
+Planning Time: 0.235 ms
+Execution Time: 29.104 ms
+```
+
+#### Captured Query Execution Plan (Zoom 17, 100k rows)
+```text
+Limit  (cost=5.24..2060.21 rows=124 width=48) (actual time=0.472..5.370 rows=501 loops=1)
+  Buffers: shared hit=576
+  ->  Bitmap Heap Scan on areas  (cost=5.24..2060.21 rows=124 width=48) (actual time=0.471..5.295 rows=501 loops=1)
+        Recheck Cond: (deleted_at IS NULL)
+        Filter: st_intersects(geom, '0103000020E61000000100000005000000...'::geometry)
+        Rows Removed by Filter: 91
+        Heap Blocks: exact=559
+        Buffers: shared hit=576
+        ->  Bitmap Index Scan on areas_geom_gist  (cost=0.00..5.21 rows=124 width=0) (actual time=0.332..0.333 rows=619 loops=1)
+              Index Cond: (geom && '0103000020E61000000100000005000000...'::geometry)
+              Buffers: shared hit=17
+Planning Time: 0.280 ms
+Execution Time: 5.486 ms
 ```
 
 ---
 
-## 4. WebSocket Collaboration Load Test
+## 4. WebSocket Collaboration Multi-Client Load Test
 
-Collaborative load testing was executed against the running backend cluster simulating virtual users streaming cursors (10 Hz) and drawing interactions. Both the k6 scenario script (`loadtest/ws_collab.js`) and the multi-client runner (`scripts/loadtest_collab.py`) exercise the full auth ticket lifecycle (`POST /api/v1/auth/login` → `POST /api/v1/auth/ws-ticket` → `ws_connect(?ticket=...)`).
+Tested using `scripts/loadtest_collab.py` (simulating virtual clients against uvicorn backend on port 8090).
+Each virtual client performs:
+1. `POST /api/v1/auth/login`
+2. `POST /api/v1/auth/ws-ticket`
+3. Connects to `GET /ws?ticket=<ticket>`
+4. Streams 10 Hz cursor movements (`CURSOR_MOVE`) with timestamps and processes inbound broadcasts.
 
-### 4.1 Summary Results
+### Empirical Measurements
 
-| Scenario | Virtual Users | Conn Success Rate | Messages Sent | Messages Received | Dropped Messages | Fan-Out Latency (p50) | Fan-Out Latency (p95) |
+| Scenario | Virtual Users | Ticket Acquisition Time | Connection Success Rate | Messages Sent | Messages Received | Dropped Messages | Fan-Out Latency (p50 / p95 / p99) |
 |---|---|---|---|---|---|---|---|
-| **Scenario 1** | 50 concurrent | **100.0%** (50/50) | 2,650 | 1,695 | **0** | < 1 ms | < 1 ms |
-| **Scenario 2** | 100 concurrent | **100.0%** (100/100) | 5,235 | 904 | **0** | < 1 ms | < 1 ms |
-| **Scenario 3** | 200 concurrent | **99.0%** (198/200) | 10,317 | 3,102 | **0** | < 1 ms | < 1 ms |
-
-### 4.2 Key Findings & Observations
-
-1. **Authentication Ticket Handshake:**
-   - Single-use Redis tickets (`ws_ticket:<uuid>`) expire after 30 seconds and are deleted atomically upon redemption via `GETDEL`.
-   - Ticket acquisition for 100 concurrent users executed in ~10.9 seconds without encountering rate limits when realistic client IPs (`X-Forwarded-For`) are supplied.
-2. **Ephemeral Fan-out & Dropping Strategy:**
-   - The outbound client queue (`asyncio.Queue(maxsize=100)`) buffers messages with micro-batching.
-   - Under standard load across 50, 100, and 200 active users, message drop counters (`ws_messages_dropped_total`) remained at 0.
-   - Redis Pub/Sub channels efficiently disseminated cross-process messages with zero serialization bottlenecks.
-3. **Spatial Indexing & Query Latency:**
-   - Cold query latencies against PostgreSQL PostGIS remained well below the HLD SLA of 50 ms (p95 was 6.46 ms on 10k rows and 35.81 ms on 100k rows).
-   - The Redis L2 viewport cache achieved steady sub-2 ms responses (p95 of 1.36 ms - 1.54 ms), cutting database query volume by over 95%.
+| **Scenario 1** | 50 concurrent | 5.87 s | **100.0%** (50/50) | 2,650 | 2,277 | **0** | 2,837 ms / 4,454 ms / 4,818 ms |
+| **Scenario 2** | 100 concurrent | 10.04 s | **100.0%** (100/100) | 5,300 | 1,654 | **0** | 2,795 ms / 4,707 ms / 4,910 ms |
+| **Scenario 3** | 200 concurrent | 20.44 s | **100.0%** (200/200) | 10,190 | 2,413 | **0** | 2,626 ms / 4,766 ms / 4,952 ms |
 
 ---
 
-## 5. Caveats & Hardware Realities
+## 5. Analysis & Caveats
 
-- **Network Latency:** Local testing over loopback (`127.0.0.1`) does not incur Internet or WAN round-trip latency (typically 10–30 ms in production).
-- **Process Memory:** Under 200 concurrent WebSockets, backend memory footprint remained below 110 MB per worker.
-- **Docker Compose Production Scaling:** In a production Kubernetes or multi-VM setup, deploying PgBouncer in front of PostgreSQL will permit thousands of concurrent connections with minimal pool overhead.
+1. **Spatial Index Utilization:**
+   - At both 10,000 and 100,000 rows, PostgreSQL consistently uses `Bitmap Index Scan on areas_geom_gist` or `Index Scan using areas_geom_gist`.
+   - On 100,000 rows, parallel index query planning with `Gather` scales across CPU workers, keeping city-scale queries (Zoom 14) around ~32–36 ms cold.
+   - The Redis L2 cache consistently delivers sub-2 ms responses across all zoom levels.
+
+2. **WebSocket Micro-Batching & Fanout Observations:**
+   - Received messages are lower than total sent due to outbound micro-batching (50 ms frames) and cursor coalescing per HLD §9.3.
+   - The measured fan-out latency (~2.7 s p50 in the Python load test runner) is heavily bottlenecked by running all 50–200 concurrent virtual clients in a single Python process event loop, where deserializing thousands of inbound JSON frames consumes the client thread.
+   - Zero messages were dropped (`ws_messages_dropped_total = 0`) across all test scenarios under normal queue capacity.
+
+3. **Environment Caveats:**
+   - Tests were conducted on a single developer machine with a single uvicorn backend instance; multi-replica Nginx cluster fan-out was not benchmarked due to k6 CLI not being available in the local environment.

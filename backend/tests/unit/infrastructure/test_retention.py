@@ -26,16 +26,16 @@ async def test_retention_job_lock_contention():
 
 
 @pytest.mark.asyncio
-async def test_retention_job_executes_queries():
+async def test_retention_job_executes_queries_and_releases_lock():
     redis_mock = MagicMock()
     redis_mock.set = AsyncMock(return_value=True)
+    redis_mock.get = AsyncMock(return_value="instance-1")
+    redis_mock.delete = AsyncMock()
 
     session_mock = MagicMock()
-    session_mock.begin = MagicMock()
-    session_mock.begin.return_value.__aenter__ = AsyncMock()
-    session_mock.begin.return_value.__aexit__ = AsyncMock()
+    session_mock.commit = AsyncMock()
 
-    # Mock execute results
+    # Mock execute results: returns 5 rows deleted on first batch, then loop breaks since 5 < batch_size (1000)
     exec_result_mock = MagicMock()
     exec_result_mock.rowcount = 5
     session_mock.execute = AsyncMock(return_value=exec_result_mock)
@@ -51,3 +51,6 @@ async def test_retention_job_executes_queries():
     assert summary["deleted_audit_logs"] == 5
     assert summary["deleted_sessions"] == 5
     assert session_mock.execute.call_count == 4
+
+    # Verify lock release
+    redis_mock.delete.assert_called_once_with(RETENTION_LOCK_KEY)

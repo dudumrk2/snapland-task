@@ -59,6 +59,7 @@ class DrawCancelMessage(BaseModel):
 class CursorMoveClientPayload(BaseModel):
     lat: float
     lng: float
+    sentAt: float | None = None
 
 class CursorMoveClientMessage(BaseModel):
     type: Literal["CURSOR_MOVE"] = "CURSOR_MOVE"
@@ -94,6 +95,7 @@ class CursorMoveServerPayload(BaseModel):
     userId: UUID
     lat: float
     lng: float
+    sentAt: float | None = None
 
 class CursorMoveServerMessage(BaseModel):
     type: Literal["CURSOR_MOVE"] = "CURSOR_MOVE"
