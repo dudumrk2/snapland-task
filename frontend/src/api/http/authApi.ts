@@ -61,6 +61,12 @@ export class AuthApi implements IAuthApi {
           useAuthStore.getState().setAccessToken(tokenResponse.accessToken);
           return tokenResponse;
         })
+        .catch((err) => {
+          if (err?.response?.status === 401 || err?.response?.status === 403) {
+            useAuthStore.getState().clearSession();
+          }
+          throw err;
+        })
         .finally(() => {
           this.refreshPromise = null;
         });

@@ -227,5 +227,26 @@ describe('authApi (HTTP client)', () => {
     });
     expect(ticket).toBe('retry-ticket-xyz');
   });
+
+  it('clears session in authStore when refresh() fails with 401 or 403', async () => {
+    useAuthStore.getState().setSession(
+      { id: 'u1', email: 'test@snapland.io', displayName: 'User' },
+      'stale-token'
+    );
+    expect(useAuthStore.getState().isAuthenticated).toBe(true);
+
+    const client = (authApi as any).client;
+    vi.spyOn(client, 'post').mockRejectedValueOnce({
+      response: { status: 401 },
+    });
+
+    await expect(authApi.refresh()).rejects.toMatchObject({
+      response: { status: 401 },
+    });
+
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(useAuthStore.getState().accessToken).toBeNull();
+  });
 });
 

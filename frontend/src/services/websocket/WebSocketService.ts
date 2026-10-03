@@ -18,6 +18,7 @@ export class WebSocketService implements IWebSocketService {
   private ticketProvider: (() => Promise<string>) | null = null;
   private _lastEventId: string | null = null;
   private consecutiveFailures = 0;
+  private consecutive4401Count = 0;
   private reconnectTimer: any = null;
   private isIntentionallyClosed = false;
   private isConnecting = false;
@@ -46,6 +47,7 @@ export class WebSocketService implements IWebSocketService {
   disconnect(): void {
     this.isIntentionallyClosed = true;
     this.isConnecting = false;
+    this.consecutive4401Count = 0;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -122,6 +124,7 @@ export class WebSocketService implements IWebSocketService {
     if (this.isIntentionallyClosed) return;
 
     this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
       this.attemptConnection();
     }, delayMs);
   }
@@ -199,6 +202,7 @@ export class WebSocketService implements IWebSocketService {
         socket.onopen = () => {
           if (this.ws !== socket) return;
           this.consecutiveFailures = 0;
+          this.consecutive4401Count = 0;
           this.updateState('connected');
         };
 
@@ -218,8 +222,14 @@ export class WebSocketService implements IWebSocketService {
             return;
           }
 
-          // Close code 4401: token expired (15 min) -> immediate reconnect with fresh ticket, not counted as failure
+          // Close code 4401: token expired (15 min) -> immediate reconnect with fresh ticket
           if (event.code === 4401) {
+            this.consecutive4401Count += 1;
+            if (this.consecutive4401Count > 2) {
+              // Repeated 4401s without a sustained open connection -> apply backoff
+              this.handleConnectionFailure();
+              return;
+            }
             this.updateState('connecting');
             this.scheduleReconnect(100);
             return;

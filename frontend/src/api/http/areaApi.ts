@@ -12,6 +12,12 @@ import type { IAuthApi } from '../interfaces/IAuthApi';
 import { realAuthApi } from './authApi';
 import { useAuthStore } from '../../store/authStore';
 
+function toIsoDate(val: any): string {
+  if (!val) return new Date().toISOString();
+  if (typeof val === 'number') return new Date(val).toISOString();
+  return String(val);
+}
+
 export function normalizeArea(raw: any): Area {
   if (!raw) {
     return {
@@ -39,8 +45,8 @@ export function normalizeArea(raw: any): Area {
     version: typeof raw.version === 'number' ? raw.version : 1,
     createdBy: String(raw.createdBy ?? raw.created_by ?? ''),
     lastEditedBy: String(raw.lastEditedBy ?? raw.last_edited_by ?? ''),
-    createdAt: String(raw.createdAt ?? raw.created_at ?? new Date().toISOString()),
-    updatedAt: String(raw.updatedAt ?? raw.updated_at ?? new Date().toISOString()),
+    createdAt: toIsoDate(raw.createdAt ?? raw.created_at),
+    updatedAt: toIsoDate(raw.updatedAt ?? raw.updated_at),
   };
 }
 
@@ -55,7 +61,7 @@ export function normalizeAreaVersion(raw: any): AreaVersion {
         : typeof raw.area_km2 === 'number'
         ? raw.area_km2
         : 0,
-    createdAt: String(raw.createdAt ?? raw.created_at ?? new Date().toISOString()),
+    createdAt: toIsoDate(raw.createdAt ?? raw.created_at),
     diff: raw.diff ?? {},
   };
 }
@@ -121,7 +127,8 @@ export class AreaApi implements IAreaApi {
 
         // 3. On 429: parse Retry-After header and surface notification without auto-retrying
         if (error.response?.status === 429) {
-          const retryHeader = error.response.headers['retry-after'];
+          const headers = error.response.headers || {};
+          const retryHeader = headers['retry-after'] ?? headers['Retry-After'];
           const details = error.response.data?.details;
           let retryAfterMs = details?.retryAfterMs;
           if (!retryAfterMs && retryHeader) {

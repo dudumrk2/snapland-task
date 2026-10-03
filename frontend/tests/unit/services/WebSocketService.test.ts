@@ -194,6 +194,31 @@ describe('WebSocketService (Real client)', () => {
     expect((wsService as any).consecutiveFailures).toBe(0);
   });
 
+  it('applies exponential backoff if code 4401 occurs repeatedly (>2 times)', async () => {
+    let ticketCounter = 1;
+    const ticketProvider = vi.fn().mockImplementation(async () => `ticket-${ticketCounter++}`);
+
+    wsService.connect(ticketProvider);
+    await flushAsync();
+
+    // 1st 4401 -> 100ms debounce
+    MockNativeWebSocket.instances[0].close(4401, 'Token expired');
+    await vi.advanceTimersByTimeAsync(150);
+    await flushAsync();
+    expect(MockNativeWebSocket.instances.length).toBe(2);
+
+    // 2nd 4401 -> 100ms debounce
+    MockNativeWebSocket.instances[1].close(4401, 'Token expired');
+    await vi.advanceTimersByTimeAsync(150);
+    await flushAsync();
+    expect(MockNativeWebSocket.instances.length).toBe(3);
+
+    // 3rd 4401 -> now exceeds 2, delegates to handleConnectionFailure
+    MockNativeWebSocket.instances[2].close(4401, 'Token expired');
+    expect((wsService as any).consecutiveFailures).toBe(1);
+    expect(wsService.connectionState).toBe('reconnecting');
+  });
+
   it('transitions connectionState to polling after 5 consecutive failures and retries every 30s', async () => {
     const states: ConnectionState[] = [];
     wsService.onStateChange((s) => states.push(s));
