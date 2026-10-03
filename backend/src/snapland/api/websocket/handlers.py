@@ -68,8 +68,9 @@ async def dispatch_message(conn: Connection, raw_data: str, app_state: Any) -> N
             await conn.enqueue(PongMessage())
         return
 
-    # Track inbound message metrics and structured log (type only, no coordinates or sensitive payloads)
-    type_str = str(msg_type or "unknown")
+    # Track inbound message metrics and structured log (bounded type labels only)
+    known_types = {"PING", "PONG", "CURSOR_MOVE", "DRAW_START", "DRAW_UPDATE", "DRAW_COMMIT", "DRAW_CANCEL", "VIEWPORT_UPDATE"}
+    type_str = str(msg_type) if msg_type in known_types else "INVALID"
     try:
         ws_messages_total.labels(type=type_str, direction="inbound").inc()
     except Exception:

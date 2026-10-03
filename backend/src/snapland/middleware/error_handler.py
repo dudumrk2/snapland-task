@@ -122,10 +122,7 @@ def setup_error_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=504,
             content={
-                "error": {
-                    "code": "GATEWAY_TIMEOUT",
-                    "message": str(exc) or "Request timed out",
-                },
+                "error": "TIMEOUT",
                 "message": str(exc) or "Request timed out",
                 "details": {},
             },
@@ -139,10 +136,7 @@ def setup_error_handlers(app: FastAPI) -> None:
             return JSONResponse(
                 status_code=504,
                 content={
-                    "error": {
-                        "code": "GATEWAY_TIMEOUT",
-                        "message": "Database query timed out",
-                    },
+                    "error": "TIMEOUT",
                     "message": "Database query timed out",
                     "details": {},
                 },

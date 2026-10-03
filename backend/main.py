@@ -1,8 +1,8 @@
 import asyncio
 import logging
-from pathlib import Path
 import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 # Ensure src is in sys.path when running uvicorn directly from backend directory
 src_dir = str(Path(__file__).parent / "src")
@@ -11,6 +11,7 @@ if src_dir not in sys.path:
 
 import structlog
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -241,7 +242,7 @@ async def lifespan(app: FastAPI):
     if not hasattr(app.state, "db_engine") or app.state.db_engine is None:
         app.state.db_engine = create_async_engine(
             settings.DATABASE_URL,
-            connect_args={"server_settings": {"statement_timeout": "25000"}},
+            connect_args={"server_settings": {"statement_timeout": "30000"}},
         )
     if not hasattr(app.state, "redis") or app.state.redis is None:
         app.state.redis = Redis.from_url(settings.REDIS_URL, decode_responses=True)
@@ -303,11 +304,18 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Snapland API", lifespan=lifespan)
 
-# Middleware stack (added in reverse order: RequestId -> Prometheus -> RateLimit -> Timeout -> endpoints)
+# Middleware stack (added in reverse order: CORS -> RequestId -> Prometheus -> RateLimit -> Timeout -> endpoints)
 app.add_middleware(TimeoutMiddleware, timeout_seconds=30.0)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(PrometheusMiddleware)
 app.add_middleware(RequestIdMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 setup_error_handlers(app)
 
 app.include_router(health_router)

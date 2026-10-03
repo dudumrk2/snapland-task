@@ -47,6 +47,9 @@ target-version = "py312"
 select = ["E", "F", "I"]
 ignore = ["E501"]
 
+[tool.ruff.lint.per-file-ignores]
+"main.py" = ["E402"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/snapland"]
 

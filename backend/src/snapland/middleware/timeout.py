@@ -1,63 +1,45 @@
 import asyncio
+from typing import Callable
 
 import structlog
-from starlette.datastructures import Headers
+from fastapi import Request, Response
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
-from starlette.types import ASGIApp, Message, Receive, Scope, Send
+from starlette.types import ASGIApp
 
 logger = structlog.get_logger(__name__)
 
 EXEMPT_PATHS = frozenset({"/metrics", "/health/live", "/health/ready", "/health/db"})
 
 
-class TimeoutMiddleware:
+class TimeoutMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp, timeout_seconds: float = 30.0):
-        self.app = app
+        super().__init__(app)
         self.timeout_seconds = timeout_seconds
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-
-        path = scope.get("path", "")
-        if path in EXEMPT_PATHS:
-            await self.app(scope, receive, send)
-            return
-
-        headers = Headers(scope=scope)
-        if headers.get("upgrade", "").lower() == "websocket":
-            await self.app(scope, receive, send)
-            return
-
-        response_started = False
-
-        async def send_wrapper(message: Message) -> None:
-            nonlocal response_started
-            if message["type"] == "http.response.start":
-                response_started = True
-            await send(message)
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        path = request.url.path
+        if (
+            path in EXEMPT_PATHS
+            or path == "/ws"
+            or path.startswith("/ws/")
+            or request.headers.get("upgrade", "").lower() == "websocket"
+        ):
+            return await call_next(request)
 
         try:
-            await asyncio.wait_for(
-                self.app(scope, receive, send_wrapper),
+            return await asyncio.wait_for(
+                call_next(request),
                 timeout=self.timeout_seconds,
             )
         except asyncio.TimeoutError:
-            if not response_started:
-                response = JSONResponse(
-                    status_code=504,
-                    content={
-                        "error": {
-                            "code": "GATEWAY_TIMEOUT",
-                            "message": f"Request timed out after {int(self.timeout_seconds)} seconds",
-                        }
-                    },
-                )
-                await response(scope, receive, send)
-            else:
-                logger.warning(
-                    "HTTP request timed out after response headers were already sent",
-                    path=path,
-                    timeout_seconds=self.timeout_seconds,
-                )
+            timeout_int = int(self.timeout_seconds)
+            logger.warning("Request timed out", path=path, timeout_seconds=self.timeout_seconds)
+            return JSONResponse(
+                status_code=504,
+                content={
+                    "error": "TIMEOUT",
+                    "message": f"Request timed out after {timeout_int}s",
+                    "details": {},
+                },
+            )

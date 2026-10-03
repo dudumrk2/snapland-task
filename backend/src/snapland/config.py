@@ -79,6 +79,16 @@ def _get_or_create_dev_keys() -> tuple[str, str]:
         raise RuntimeError(f"Failed to generate dev JWT keys: {e}") from e
 
 
+DEFAULT_CORS_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:80",
+    "http://127.0.0.1:80",
+    "http://localhost",
+    "http://127.0.0.1",
+]
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env"),
@@ -95,8 +105,28 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     INSTANCE_ID: str = _generate_instance_id()
     WS_ALLOWED_ORIGINS: str = "*"
+    CORS_ORIGINS: list[str] | str = DEFAULT_CORS_ORIGINS
     MAX_AREA_KM2: float = 1000.0
     MAX_POLYGON_VERTICES: int = 1000
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        if isinstance(self.CORS_ORIGINS, str):
+            raw = self.CORS_ORIGINS.strip()
+            if raw.startswith("[") and raw.endswith("]"):
+                import json
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, list):
+                        return [str(o).strip() for o in parsed if str(o).strip()]
+                except Exception:
+                    pass
+            origins = [o.strip() for o in raw.split(",") if o.strip()]
+        else:
+            origins = list(self.CORS_ORIGINS)
+        if not origins:
+            return list(DEFAULT_CORS_ORIGINS)
+        return origins
 
     @field_validator("DATABASE_URL", mode="after")
     @classmethod
@@ -112,6 +142,8 @@ class Settings(BaseSettings):
         if self.ENVIRONMENT in ("production", "staging"):
             if self.WS_ALLOWED_ORIGINS == "*":
                 raise ValueError(f"WS_ALLOWED_ORIGINS cannot be '*' in {self.ENVIRONMENT}")
+            if "*" in self.cors_origins_list:
+                raise ValueError(f"CORS_ORIGINS cannot contain '*' in {self.ENVIRONMENT} when allow_credentials=True")
             if not self.JWT_PRIVATE_KEY or not self.JWT_PRIVATE_KEY.startswith("-----BEGIN"):
                 raise ValueError(f"Valid JWT_PRIVATE_KEY required in {self.ENVIRONMENT}")
             if not self.JWT_PUBLIC_KEY or not self.JWT_PUBLIC_KEY.startswith("-----BEGIN"):

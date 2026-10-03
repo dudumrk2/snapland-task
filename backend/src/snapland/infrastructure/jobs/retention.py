@@ -16,40 +16,40 @@ from snapland.infrastructure.db.models import (
 
 logger = structlog.get_logger(__name__)
 
-RETENTION_LOCK_KEY = "snapland:job:retention:lock"
-RETENTION_LOCK_TTL = 82800  # 23 hours deduplication window
+RETENTION_LOCK_KEY = "retention:lock"
+RETENTION_LOCK_TTL = 3600  # 1 hour lock TTL (SET retention:lock 1 NX EX 3600)
 BATCH_SIZE = 1000
 
 
-async def run_retention_job(
+async def run_retention_cleanup(
     session_factory: async_sessionmaker,
     redis_client: Any,
-    instance_id: str,
+    instance_id: str = "1",
     batch_size: int = BATCH_SIZE,
 ) -> dict[str, int]:
-    """Runs data retention tasks guarded by Redis distributed SET NX lock.
+    """Runs data retention cleanup tasks guarded by Redis distributed SET NX lock.
 
     Tasks:
     1. Prune area_versions older than 1 year for deleted areas.
-    2. Purge soft-deleted areas older than 90 days.
-    3. Delete audit_logs older than 1 year.
-    4. Delete expired/revoked sessions older than 30 days.
+    2. Purge soft-deleted areas where deleted_at < NOW() - INTERVAL '90 days'.
+    3. Purge expired or revoked sessions older than 30 days.
+    4. Purge audit_logs older than 1 year.
 
-    Each task runs in bounded batches with separate transactions to avoid holding
-    locks for extended durations and to prevent statement timeout errors.
+    Acquires distributed lock in Redis (SET retention:lock 1 NX EX 3600) so only
+    one backend replica runs the job.
     """
     # Attempt to acquire distributed lock
     try:
         acquired = await redis_client.set(RETENTION_LOCK_KEY, instance_id, nx=True, ex=RETENTION_LOCK_TTL)
     except Exception as e:
-        logger.error("Failed to acquire Redis lock for retention job", error=str(e))
+        logger.error("Failed to acquire Redis lock for retention cleanup", error=str(e))
         return {}
 
     if not acquired:
-        logger.info("Retention job skipped: lock already held by another instance", instance_id=instance_id)
+        logger.info("Retention cleanup skipped: lock already held by another instance", instance_id=instance_id)
         return {}
 
-    logger.info("Starting data retention job", instance_id=instance_id)
+    logger.info("Starting data retention cleanup", instance_id=instance_id)
     now = datetime.now(timezone.utc)
     cutoff_90d = now - timedelta(days=90)
     cutoff_1y = now - timedelta(days=365)
@@ -81,7 +81,7 @@ async def run_retention_job(
                 if count < batch_size:
                     break
 
-        # Task 2: Purge soft-deleted areas older than 90 days (cascades to remaining versions)
+        # Task 2: Purge soft-deleted areas where deleted_at < NOW() - INTERVAL '90 days'
         while True:
             async with session_factory() as session:
                 subquery_areas = (
@@ -133,12 +133,10 @@ async def run_retention_job(
                 if count < batch_size:
                     break
 
-        logger.info("Data retention job completed successfully", **summary, instance_id=instance_id)
-        # Lock is intentionally retained for RETENTION_LOCK_TTL (23 hours) to prevent
-        # other cluster instances from re-executing the job on the same day.
+        logger.info("Data retention cleanup completed successfully", **summary, instance_id=instance_id)
         return summary
     except Exception as e:
-        logger.error("Data retention job failed with error", error=str(e), instance_id=instance_id)
+        logger.error("Data retention cleanup failed with error", error=str(e), instance_id=instance_id)
         # On failure, release lock atomically using Lua script so a retry is permitted
         release_lua = """
         if redis.call("get", KEYS[1]) == ARGV[1] then
@@ -159,15 +157,30 @@ async def run_retention_job(
         raise
 
 
+async def run_retention_job(
+    session_factory: async_sessionmaker,
+    redis_client: Any,
+    instance_id: str = "1",
+    batch_size: int = BATCH_SIZE,
+) -> dict[str, int]:
+    """Backwards-compatible alias for run_retention_cleanup."""
+    return await run_retention_cleanup(
+        session_factory=session_factory,
+        redis_client=redis_client,
+        instance_id=instance_id,
+        batch_size=batch_size,
+    )
+
+
 def setup_retention_scheduler(
     session_factory: async_sessionmaker,
     redis_client: Any,
-    instance_id: str,
+    instance_id: str = "1",
 ) -> AsyncIOScheduler:
-    """Configures APScheduler for daily retention execution at 02:00 UTC."""
+    """Configures APScheduler for daily retention cleanup execution at 02:00 UTC."""
     scheduler = AsyncIOScheduler(timezone=timezone.utc)
     scheduler.add_job(
-        run_retention_job,
+        run_retention_cleanup,
         trigger=CronTrigger(hour=2, minute=0, timezone=timezone.utc),
         args=[session_factory, redis_client, instance_id],
         id="data_retention_job",

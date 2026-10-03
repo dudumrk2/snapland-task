@@ -33,7 +33,9 @@ def test_timeout_middleware_slow_request_returns_504():
     resp = client.get("/slow")
     assert resp.status_code == 504
     data = resp.json()
-    assert data["error"]["code"] == "GATEWAY_TIMEOUT"
+    assert data["error"] == "TIMEOUT"
+    assert "timed out" in data["message"].lower()
+    assert "details" in data
 
 
 def test_timeout_middleware_exempt_paths():
@@ -50,12 +52,30 @@ def test_timeout_middleware_exempt_paths():
         await asyncio.sleep(0.1)
         return {"status": "ok"}
 
+    @app.get("/ws")
+    async def ws_handler():
+        await asyncio.sleep(0.1)
+        return {"ws": "ok"}
+
+    @app.get("/custom-endpoint")
+    async def custom_endpoint_handler():
+        await asyncio.sleep(0.1)
+        return {"custom": "ok"}
+
     client = TestClient(app)
     resp1 = client.get("/metrics")
     assert resp1.status_code == 200
 
     resp2 = client.get("/health/live")
     assert resp2.status_code == 200
+
+    resp3 = client.get("/ws")
+    assert resp3.status_code == 200
+
+    # Header-based upgrade exemption on non-standard path
+    resp4 = client.get("/custom-endpoint", headers={"Upgrade": "websocket"})
+    assert resp4.status_code == 200
+    assert resp4.json() == {"custom": "ok"}
 
 
 def test_error_handler_timeout_error_returns_504():
@@ -72,8 +92,8 @@ def test_error_handler_timeout_error_returns_504():
     resp = client.get("/db-timeout")
     assert resp.status_code == 504
     data = resp.json()
-    assert data["error"]["code"] == "GATEWAY_TIMEOUT"
-    assert "timed out" in data["error"]["message"]
+    assert data["error"] == "TIMEOUT"
+    assert "timed out" in data["message"]
 
 
 def test_error_handler_db_statement_timeout_returns_504():
@@ -92,6 +112,6 @@ def test_error_handler_db_statement_timeout_returns_504():
     resp = client.get("/statement-timeout")
     assert resp.status_code == 504
     data = resp.json()
-    assert data["error"]["code"] == "GATEWAY_TIMEOUT"
-    assert "Database query timed out" in data["error"]["message"]
+    assert data["error"] == "TIMEOUT"
+    assert "Database query timed out" in data["message"]
 
