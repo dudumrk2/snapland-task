@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
-import { useDrawing } from '../../hooks/useDrawing';
+import { useDrawing, DrawingAbortedError } from '../../hooks/useDrawing';
 import { useAreasStore } from '../../store/areasStore';
 
 export interface DrawingLayerProps {
@@ -217,8 +217,8 @@ export const DrawingLayer: React.FC<DrawingLayerProps> = ({
       await saveDrawing(areaName.trim());
       setAreaName('');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to save area';
-      if (msg !== 'Drawing cancelled' && msg !== 'Component unmounted') {
+      if (!(err instanceof DrawingAbortedError)) {
+        const msg = err instanceof Error ? err.message : 'Failed to save area';
         setSaveError(msg);
       }
     } finally {

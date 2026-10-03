@@ -213,7 +213,7 @@ describe('useDrawing', () => {
     expect(result.current.isSaveModalOpen).toBe(true);
   });
 
-  it('ignores RATE_LIMITED error and allows saveDrawing to resolve on AREA_SAVED', async () => {
+  it('rejects saveDrawing immediately when RATE_LIMITED error arrives', async () => {
     mockWsService.connect(async () => 'ticket');
     await new Promise((r) => setTimeout(r, 150));
 
@@ -237,12 +237,51 @@ describe('useDrawing', () => {
       savePromise = result.current.saveDrawing('Polygon With Rate Limit');
     });
 
-    // Dispatch RATE_LIMITED error (e.g. from mouse moves) - should NOT reject commit
+    // Dispatch RATE_LIMITED error
     act(() => {
       mockWsService.dispatch('ERROR', {
         code: 'RATE_LIMITED',
-        message: 'Rate limit exceeded for drawing deltas',
+        message: 'Too many drawing actions',
+        retryAfterMs: 3000,
       });
+    });
+
+    await expect(savePromise!).rejects.toThrow('Too many drawing actions');
+    expect(result.current.isSaveModalOpen).toBe(true);
+    expect(result.current.points).toHaveLength(3);
+  });
+
+  it('ignores ERROR meant for a different shapeId and resolves on AREA_SAVED', async () => {
+    mockWsService.connect(async () => 'ticket');
+    await new Promise((r) => setTimeout(r, 150));
+
+    const { result } = renderHook(() => useDrawing(), { wrapper });
+
+    act(() => {
+      result.current.startDrawing();
+      result.current.addPoint({ lat: 32.0, lng: 34.8 });
+      result.current.addPoint({ lat: 32.0, lng: 34.9 });
+      result.current.addPoint({ lat: 32.1, lng: 34.85 });
+      result.current.finishDrawing();
+    });
+
+    vi.spyOn(mockWsService, 'send').mockImplementation((msg) => {
+      mockWsService.sentMessages.push(msg);
+      return true;
+    });
+
+    let savePromise: Promise<unknown>;
+    act(() => {
+      savePromise = result.current.saveDrawing('Polygon With Unrelated Error');
+    });
+
+    // Dispatch ERROR for a different shapeId
+    act(() => {
+      mockWsService.dispatch('ERROR', {
+        code: 'VALIDATION_ERROR',
+        message: 'Other shape invalid',
+        shapeId: 'different-shape-id-999',
+      } as unknown as { code: string; message: string });
     });
 
     // Now dispatch AREA_SAVED with the active shapeId
@@ -252,7 +291,7 @@ describe('useDrawing', () => {
         shapeId: activeShapeId,
         area: {
           id: 'area-123',
-          name: 'Polygon With Rate Limit',
+          name: 'Polygon With Unrelated Error',
           coordinates: result.current.points,
           areaKm2: 1.5,
           version: 1,
@@ -267,5 +306,77 @@ describe('useDrawing', () => {
     await expect(savePromise!).resolves.toBeDefined();
     expect(result.current.isSaveModalOpen).toBe(false);
     expect(result.current.points).toHaveLength(0);
+  });
+
+  it('falls back to HTTP createArea when wsService.send returns false', async () => {
+    mockWsService.connect(async () => 'ticket');
+    await new Promise((r) => setTimeout(r, 150));
+
+    const { result } = renderHook(() => useDrawing(), { wrapper });
+
+    act(() => {
+      result.current.startDrawing();
+      result.current.addPoint({ lat: 32.0, lng: 34.8 });
+      result.current.addPoint({ lat: 32.0, lng: 34.9 });
+      result.current.addPoint({ lat: 32.1, lng: 34.85 });
+      result.current.finishDrawing();
+    });
+
+    // wsService.send returns false (socket closing or not ready)
+    vi.spyOn(mockWsService, 'send').mockReturnValue(false);
+    const createAreaSpy = vi.spyOn(mockAreaApi, 'createArea');
+
+    let savedArea: unknown;
+    await act(async () => {
+      savedArea = await result.current.saveDrawing('HTTP Fallback Area');
+    });
+
+    expect(createAreaSpy).toHaveBeenCalled();
+    expect(savedArea).toBeDefined();
+    expect(result.current.isSaveModalOpen).toBe(false);
+    expect(result.current.points).toHaveLength(0);
+  });
+
+  it('rejects saveDrawing with timeout error after 8s and preserves points', async () => {
+    vi.useFakeTimers();
+    try {
+      mockWsService.connect(async () => 'ticket');
+      // Advance to allow connect to complete
+      await vi.advanceTimersByTimeAsync(150);
+      expect(mockWsService.connectionState).toBe('connected');
+
+      const { result } = renderHook(() => useDrawing(), { wrapper });
+
+      act(() => {
+        result.current.startDrawing();
+        result.current.addPoint({ lat: 32.0, lng: 34.8 });
+        result.current.addPoint({ lat: 32.0, lng: 34.9 });
+        result.current.addPoint({ lat: 32.1, lng: 34.85 });
+        result.current.finishDrawing();
+      });
+
+      vi.spyOn(mockWsService, 'send').mockImplementation((msg) => {
+        mockWsService.sentMessages.push(msg);
+        return true;
+      });
+
+      let savePromise: Promise<unknown>;
+      act(() => {
+        savePromise = result.current.saveDrawing('Timeout Area');
+      });
+
+      const assertion = expect(savePromise!).rejects.toThrow('Save timed out. Please try again.');
+
+      // Advance timers by 8000ms inside act
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(8000);
+      });
+
+      await assertion;
+      expect(result.current.isSaveModalOpen).toBe(true);
+      expect(result.current.points).toHaveLength(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

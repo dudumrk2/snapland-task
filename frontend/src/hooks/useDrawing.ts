@@ -15,6 +15,13 @@ export interface UseDrawingOptions {
   onPolygonCreated?: (coordinates: Coordinate[]) => void;
 }
 
+export class DrawingAbortedError extends Error {
+  constructor(message: string = 'Drawing was aborted') {
+    super(message);
+    this.name = 'DrawingAbortedError';
+  }
+}
+
 export function useDrawing(options?: UseDrawingOptions) {
   const { wsService } = useApi();
   const { createArea, selectArea } = useAreas();
@@ -167,14 +174,14 @@ export function useDrawing(options?: UseDrawingOptions) {
   }, [flushDeltaUpdate, options]);
 
   const cancelDrawing = useCallback(() => {
+    // If a commit is in flight, do not cancel while server is processing it
+    if (pendingCommitRef.current) {
+      return;
+    }
+
     if (throttleTimerRef.current) {
       clearTimeout(throttleTimerRef.current);
       throttleTimerRef.current = null;
-    }
-    if (pendingCommitRef.current) {
-      clearTimeout(pendingCommitRef.current.timeoutId);
-      pendingCommitRef.current.reject(new Error('Drawing cancelled'));
-      pendingCommitRef.current = null;
     }
     if (shapeIdRef.current) {
       wsService.send({
@@ -280,10 +287,6 @@ export function useDrawing(options?: UseDrawingOptions) {
 
     const unsubError = wsService.on('ERROR', (payload) => {
       if (pendingCommitRef.current) {
-        // Ignore rate limiting errors on commit (they apply to delta updates/cursor moves)
-        if (payload.code === 'RATE_LIMITED') {
-          return;
-        }
         // If error specifies a shapeId, ignore if it belongs to a different shape
         const errShapeId = (payload as { shapeId?: string }).shapeId;
         if (errShapeId && errShapeId !== pendingCommitRef.current.shapeId) {
@@ -291,7 +294,11 @@ export function useDrawing(options?: UseDrawingOptions) {
         }
 
         clearTimeout(pendingCommitRef.current.timeoutId);
-        const errMsg = payload.message || payload.code || 'Failed to save area';
+        let errMsg = payload.message || payload.code || 'Failed to save area';
+        if (payload.code === 'RATE_LIMITED') {
+          const retrySec = payload.retryAfterMs ? Math.ceil(payload.retryAfterMs / 1000) : 1;
+          errMsg = payload.message || `Rate limited. Please retry in ${retrySec}s.`;
+        }
         pendingCommitRef.current.reject(new Error(errMsg));
         pendingCommitRef.current = null;
       }
@@ -312,7 +319,7 @@ export function useDrawing(options?: UseDrawingOptions) {
       }
       if (pendingCommitRef.current) {
         clearTimeout(pendingCommitRef.current.timeoutId);
-        pendingCommitRef.current.reject(new Error('Component unmounted'));
+        pendingCommitRef.current.reject(new DrawingAbortedError('Component unmounted'));
         pendingCommitRef.current = null;
       }
     };
@@ -327,8 +334,10 @@ export function useDrawing(options?: UseDrawingOptions) {
         e.preventDefault();
         finishDrawing();
       } else if (e.key === 'Escape') {
-        e.preventDefault();
-        cancelDrawing();
+        if (!pendingCommitRef.current) {
+          e.preventDefault();
+          cancelDrawing();
+        }
       }
     };
 

@@ -189,19 +189,18 @@ describe('RealWebSocketService', () => {
     // Simulate continuing failures without messages (failures 2, 3, 4, 5)
     // to verify consecutiveFailures escalates all the way to 'polling'
     for (let failCount = 2; failCount <= 5; failCount++) {
-      // Advance past backoff timer and connect delay to trigger reconnect
-      await vi.advanceTimersByTimeAsync(35000);
+      // Advance timers until backoff timer fires and reconnect completes
+      while (wsService.connectionState !== 'connected') {
+        await vi.advanceTimersByTimeAsync(200);
+      }
+      expect(wsService.connectionState).toBe('connected');
+      const s = (wsService as unknown as { socket: MockWebSocket }).socket;
+      s.close(4401, 'Token expired');
+      await vi.advanceTimersByTimeAsync(10);
+
       if (failCount < 5) {
-        expect(wsService.connectionState).toBe('connected');
-        const s = (wsService as unknown as { socket: MockWebSocket }).socket;
-        s.close(4401, 'Token expired');
-        await vi.advanceTimersByTimeAsync(10);
         expect(wsService.connectionState).toBe('reconnecting');
       } else {
-        expect(wsService.connectionState).toBe('connected');
-        const s = (wsService as unknown as { socket: MockWebSocket }).socket;
-        s.close(4401, 'Token expired');
-        await vi.advanceTimersByTimeAsync(10);
         // At 5th consecutive failure, state must transition to 'polling'
         expect(wsService.connectionState).toBe('polling');
       }

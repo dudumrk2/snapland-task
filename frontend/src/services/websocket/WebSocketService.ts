@@ -29,6 +29,7 @@ export class RealWebSocketService implements IWebSocketService {
   private consecutiveFailures = 0;
   private consecutiveAuthFailures = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private stabilityTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalDisconnect = false;
 
   get connectionState(): ConnectionState {
@@ -53,6 +54,7 @@ export class RealWebSocketService implements IWebSocketService {
   disconnect(): void {
     this.intentionalDisconnect = true;
     this.clearReconnectTimer();
+    this.clearStabilityTimer();
 
     if (this.socket) {
       // Normal closure
@@ -123,6 +125,13 @@ export class RealWebSocketService implements IWebSocketService {
     }
   }
 
+  private clearStabilityTimer(): void {
+    if (this.stabilityTimer) {
+      clearTimeout(this.stabilityTimer);
+      this.stabilityTimer = null;
+    }
+  }
+
   private getWebSocketUrl(ticket: string): string {
     const customWsUrl = import.meta.env.VITE_WS_URL;
     let url: string;
@@ -167,11 +176,20 @@ export class RealWebSocketService implements IWebSocketService {
       ws.onopen = () => {
         if (this.socket !== ws) return;
         this.clearReconnectTimer();
+        this.clearStabilityTimer();
         this.updateState('connected');
+        // Stability window: if connection stays open and healthy for 10s, reset failure counters
+        this.stabilityTimer = setTimeout(() => {
+          if (this.socket === ws && this.state === 'connected') {
+            this.consecutiveFailures = 0;
+            this.consecutiveAuthFailures = 0;
+          }
+        }, 10000);
       };
 
       ws.onmessage = (event: MessageEvent) => {
         if (this.socket !== ws) return;
+        this.clearStabilityTimer();
         this.consecutiveFailures = 0;
         this.consecutiveAuthFailures = 0;
         this.handleMessage(event.data);
@@ -182,6 +200,7 @@ export class RealWebSocketService implements IWebSocketService {
       };
 
       ws.onclose = (event: CloseEvent) => {
+        this.clearStabilityTimer();
         if (this.socket === ws) {
           this.socket = null;
         }
