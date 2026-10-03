@@ -27,6 +27,7 @@ export class RealWebSocketService implements IWebSocketService {
   private resyncHandlers = new Set<() => void>();
 
   private consecutiveFailures = 0;
+  private consecutiveAuthFailures = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalDisconnect = false;
 
@@ -60,6 +61,7 @@ export class RealWebSocketService implements IWebSocketService {
     }
 
     this.consecutiveFailures = 0;
+    this.consecutiveAuthFailures = 0;
     this.updateState('disconnected');
   }
 
@@ -163,6 +165,7 @@ export class RealWebSocketService implements IWebSocketService {
       ws.onopen = () => {
         if (this.socket !== ws) return;
         this.consecutiveFailures = 0;
+        this.consecutiveAuthFailures = 0;
         this.clearReconnectTimer();
         this.updateState('connected');
       };
@@ -188,7 +191,13 @@ export class RealWebSocketService implements IWebSocketService {
 
         // Close code 4401: Token expired, immediate reconnect with new ticket, not a failure
         if (event.code === 4401) {
+          this.consecutiveAuthFailures += 1;
           this.clearReconnectTimer();
+          // If 4401 happens repeatedly (>3 times), fall back to connection failure backoff
+          if (this.consecutiveAuthFailures > 3) {
+            this.handleConnectionFailure();
+            return;
+          }
           this.reconnectTimer = setTimeout(() => {
             this.initiateConnection();
           }, 0);

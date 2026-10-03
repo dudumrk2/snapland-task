@@ -32,6 +32,7 @@ export function useDrawing(options?: UseDrawingOptions) {
   const lastUpdateSentRef = useRef<number>(0);
   const pendingAppendRef = useRef<Coordinate[]>([]);
   const fromIndexRef = useRef<number>(0);
+  const throttleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Compute live approximate area
   const previewPoints =
@@ -40,6 +41,10 @@ export function useDrawing(options?: UseDrawingOptions) {
   const formattedApproxArea = formatArea(approxAreaKm2, true);
 
   const startDrawing = useCallback(() => {
+    if (throttleTimerRef.current) {
+      clearTimeout(throttleTimerRef.current);
+      throttleTimerRef.current = null;
+    }
     const shapeId = `shape-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     shapeIdRef.current = shapeId;
     seqRef.current = 0;
@@ -56,6 +61,10 @@ export function useDrawing(options?: UseDrawingOptions) {
   }, []);
 
   const flushDeltaUpdate = useCallback(() => {
+    if (throttleTimerRef.current) {
+      clearTimeout(throttleTimerRef.current);
+      throttleTimerRef.current = null;
+    }
     if (!shapeIdRef.current || pendingAppendRef.current.length === 0) return;
 
     seqRef.current += 1;
@@ -96,12 +105,21 @@ export function useDrawing(options?: UseDrawingOptions) {
         });
         fromIndexRef.current = 1;
       } else {
-        // Buffer vertex delta for throttled DRAW_UPDATE
+        // Buffer vertex delta for throttled DRAW_UPDATE with trailing edge
         pendingAppendRef.current.push(coord);
         const now = Date.now();
-        if (now - lastUpdateSentRef.current >= 66) {
-          // ~15 Hz throttling (HLD §9.1)
+        const elapsed = now - lastUpdateSentRef.current;
+        if (elapsed >= 66) {
+          if (throttleTimerRef.current) {
+            clearTimeout(throttleTimerRef.current);
+            throttleTimerRef.current = null;
+          }
           flushDeltaUpdate();
+        } else if (!throttleTimerRef.current) {
+          throttleTimerRef.current = setTimeout(() => {
+            throttleTimerRef.current = null;
+            flushDeltaUpdate();
+          }, 66 - elapsed);
         }
       }
 
@@ -143,6 +161,10 @@ export function useDrawing(options?: UseDrawingOptions) {
   }, [flushDeltaUpdate, options]);
 
   const cancelDrawing = useCallback(() => {
+    if (throttleTimerRef.current) {
+      clearTimeout(throttleTimerRef.current);
+      throttleTimerRef.current = null;
+    }
     if (shapeIdRef.current) {
       wsService.send({
         type: 'DRAW_CANCEL',
@@ -169,11 +191,6 @@ export function useDrawing(options?: UseDrawingOptions) {
 
       const currentShapeId = shapeIdRef.current || undefined;
 
-      setIsSaveModalOpen(false);
-      isDrawingRef.current = false;
-      setIsDrawing(false);
-      setPoints([]);
-
       // In connected mode: emit DRAW_COMMIT over WebSocket, which creates the area
       // and broadcasts AREA_SAVED with shapeId (HLD §9.1)
       // In degraded/polling mode: persist directly via HTTP POST (Task 8 / HLD §12.1)
@@ -186,8 +203,16 @@ export function useDrawing(options?: UseDrawingOptions) {
             points: clean,
           },
         });
+        setIsSaveModalOpen(false);
+        isDrawingRef.current = false;
+        setIsDrawing(false);
+        setPoints([]);
       } else {
         const createdArea = await createArea(name, clean, currentShapeId);
+        setIsSaveModalOpen(false);
+        isDrawingRef.current = false;
+        setIsDrawing(false);
+        setPoints([]);
         shapeIdRef.current = null;
         return createdArea;
       }
@@ -208,6 +233,16 @@ export function useDrawing(options?: UseDrawingOptions) {
       }
     });
   }, [wsService, selectArea]);
+
+  // Clean up throttle timer on unmount
+  useEffect(() => {
+    return () => {
+      if (throttleTimerRef.current) {
+        clearTimeout(throttleTimerRef.current);
+        throttleTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // Keyboard shortcut listener: Enter to finish, Escape to cancel
   useEffect(() => {

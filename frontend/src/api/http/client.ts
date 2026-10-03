@@ -147,22 +147,21 @@ apiClient.interceptors.response.use(
 
       try {
         if (!refreshPromise) {
-          if (refreshHandler) {
-            refreshPromise = refreshHandler();
-          } else {
-            refreshPromise = Promise.reject(new Error('No refresh handler registered'));
-          }
+          const handler = refreshHandler
+            ? refreshHandler()
+            : Promise.reject(new Error('No refresh handler registered'));
+          refreshPromise = handler.finally(() => {
+            refreshPromise = null;
+          });
         }
 
         const newAccessToken = await refreshPromise;
-        refreshPromise = null;
 
         if (newAccessToken) {
           originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
           return apiClient(originalRequest);
         }
       } catch (refreshErr) {
-        refreshPromise = null;
         useAuthStore.getState().clearSession();
         if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
           window.location.href = '/login';

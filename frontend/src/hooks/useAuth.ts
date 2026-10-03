@@ -24,12 +24,14 @@ export function useAuth() {
       setError(null);
       try {
         const tokens = await authApi.login(req);
-        const userProfile = await authApi.getCurrentUser();
-        const currentUser = userProfile || {
-          id: 'user-1',
-          email: req.email,
-          displayName: req.email.split('@')[0],
-        };
+        const currentStoreUser = useAuthStore.getState().user;
+        const currentUser =
+          currentStoreUser ||
+          (await authApi.getCurrentUser()) || {
+            id: 'user-1',
+            email: req.email,
+            displayName: req.email.split('@')[0],
+          };
         setSession(currentUser, tokens.accessToken);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Login failed';

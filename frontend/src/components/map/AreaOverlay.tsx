@@ -29,6 +29,15 @@ export const AreaOverlay: React.FC<AreaOverlayProps> = ({ map, isDrawing = false
     };
   }, [map]);
 
+  // Dynamically toggle pointer-events on polygonsPane without rebuilding layers
+  useEffect(() => {
+    if (!map) return;
+    const pane = map.getPane('polygonsPane');
+    if (pane) {
+      pane.style.pointerEvents = isDrawing ? 'none' : 'auto';
+    }
+  }, [map, isDrawing]);
+
   // Render polygons in polygonsPane
   useEffect(() => {
     if (!map || !polygonsGroupRef.current) return;
@@ -48,7 +57,7 @@ export const AreaOverlay: React.FC<AreaOverlayProps> = ({ map, isDrawing = false
       const polygon = L.polygon(latLngs, {
         pane: 'polygonsPane', // Dedicated pane (z-index: 450) ensures no flicker or movement
         className: 'leaflet-interactive snapland-area-polygon',
-        interactive: !isDrawing,
+        interactive: true,
         color: isSelected ? '#ef4444' : '#2563eb',
         weight: isSelected ? 3 : 2,
         fillColor: isSelected ? '#f87171' : '#3b82f6',
@@ -79,7 +88,7 @@ export const AreaOverlay: React.FC<AreaOverlayProps> = ({ map, isDrawing = false
 
       group.addLayer(polygon);
     });
-  }, [map, areas, selectedAreaId, selectArea, isDrawing]);
+  }, [map, areas, selectedAreaId, selectArea]);
 
   return null;
 };
