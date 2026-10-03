@@ -26,8 +26,9 @@ export function setupWebSocketSubscriptions(
   });
 
   const unsubJoined = wsService.on('USER_JOINED', (payload) => {
-    if (payload.userId) {
-      useCollaborationStore.getState().addPresenceUser(payload);
+    const user = 'user' in payload ? payload.user : payload;
+    if (user && user.userId) {
+      useCollaborationStore.getState().addPresenceUser(user);
     }
   });
 

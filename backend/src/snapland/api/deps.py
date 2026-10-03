@@ -1,8 +1,9 @@
+from typing import Any
+
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from snapland.config import settings
-from snapland.core.domain.events import DomainEvent
 from snapland.core.services.area_service import AreaService
 from snapland.core.services.audit_service import AuditService
 from snapland.core.services.auth_service import AuthService
@@ -40,16 +41,24 @@ def get_auth_service(db: AsyncSession = Depends(get_db), redis = Depends(get_red
         jwt_private_key=settings.JWT_PRIVATE_KEY
     )
 
-class DummyEventPublisher:
-    async def publish(self, event: DomainEvent) -> None:
-        pass
 
-def get_area_service(db: AsyncSession = Depends(get_db), redis = Depends(get_redis)):
-    repo = AreaRepository(db)
-    cache = CacheRepository(redis)
+def build_area_service(session: AsyncSession, app_state: Any) -> AreaService:
+    repo = AreaRepository(session)
     spatial = SpatialService()
     audit = AuditService()
-    events = DummyEventPublisher()
+    cache = getattr(app_state, "cache_repo", None)
+    if not cache and hasattr(app_state, "redis") and app_state.redis:
+        cache = CacheRepository(app_state.redis)
+    events = getattr(app_state, "event_stream", None)
+    if not events and hasattr(app_state, "redis") and app_state.redis:
+        from snapland.infrastructure.pubsub.redis_streams import RedisEventStream
+        events = RedisEventStream(app_state.redis)
+
+    if not cache:
+        raise RuntimeError("Cache repository is required for AreaService")
+    if not events:
+        raise RuntimeError("Event stream publisher is required for AreaService")
+
     return AreaService(
         repo=repo,
         spatial=spatial,
@@ -57,6 +66,14 @@ def get_area_service(db: AsyncSession = Depends(get_db), redis = Depends(get_red
         events=events,
         audit=audit
     )
+
+
+def get_area_service(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> AreaService:
+    return build_area_service(db, request.app.state)
+
 
 def get_audit_service():
     return AuditService()

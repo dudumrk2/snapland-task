@@ -31,6 +31,7 @@ class AreaVersion(BaseModel):
 class CreateAreaRequest(BaseModel):
     name: str
     coordinates: list[Coordinate]
+    shape_id: str | None = None
 
 class UpdateAreaRequest(BaseModel):
     version: int

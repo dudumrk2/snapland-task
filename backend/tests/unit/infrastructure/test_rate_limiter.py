@@ -1,9 +1,11 @@
-import pytest
-import time
 from unittest.mock import AsyncMock, MagicMock
-from snapland.middleware.rate_limiter import RedisRateLimiter, check_rate_limit
+
+import pytest
+
 from snapland.core.interfaces.services import RateLimitResult
 from snapland.middleware.error_handler import RateLimitExceeded
+from snapland.middleware.rate_limiter import RedisRateLimiter, check_rate_limit
+
 
 @pytest.fixture
 def mock_redis():
