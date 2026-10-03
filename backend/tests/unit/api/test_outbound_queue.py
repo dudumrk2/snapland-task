@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import uuid
 from unittest.mock import AsyncMock, MagicMock
@@ -227,5 +228,28 @@ async def test_disconnect_unregistered_connection_cancels_writer(mock_ws):
     assert conn.closed is True
     assert conn.writer_task.cancelled() or conn.writer_task.done()
     assert "conn-unregistered" not in manager.all_connections
+
+
+@pytest.mark.asyncio
+async def test_ws_keepalive_pong_timeout_closes_socket(mock_ws):
+    manager = WebSocketManager()
+    uid = uuid.uuid4()
+    conn = await manager.connect(mock_ws, uid, "conn-keepalive", register=True)
+
+    import time
+    # Simulate PING sent 11 seconds ago without receiving a PONG
+    conn.last_ping_time = time.monotonic() - 11.0
+
+    dummy_area = Area(
+        id=uuid.uuid4(), name="T", coordinates=[], area_km2=1.0, version=1,
+        created_by=uid, last_edited_by=uid, created_at=datetime.datetime.now(datetime.UTC), updated_at=datetime.datetime.now(datetime.UTC)
+    )
+    await conn.enqueue(AreaSavedMessage(eventId="1-0", payload=AreaSavedPayload(area=dummy_area)))
+
+    await asyncio.sleep(0.05)
+    assert conn.closed is True
+    mock_ws.close.assert_called_with(code=1001, reason="pong_timeout")
+    await manager.disconnect("conn-keepalive")
+
 
 
