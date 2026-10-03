@@ -124,7 +124,7 @@ def setup_error_handlers(app: FastAPI) -> None:
             content={
                 "error": "TIMEOUT",
                 "message": str(exc) or "Request timed out",
-                "details": {"code": "GATEWAY_TIMEOUT"},
+                "details": {},
             },
         )
 
@@ -138,7 +138,7 @@ def setup_error_handlers(app: FastAPI) -> None:
                 content={
                     "error": "TIMEOUT",
                     "message": "Database query timed out",
-                    "details": {"code": "GATEWAY_TIMEOUT"},
+                    "details": {},
                 },
             )
         log.exception("Unhandled database error: %s", exc)

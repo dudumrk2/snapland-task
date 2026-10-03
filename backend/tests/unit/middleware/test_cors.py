@@ -61,3 +61,30 @@ def test_cors_origins_list_string_and_fallback():
     # JSON array string parsing
     s3 = Settings(CORS_ORIGINS='["http://alpha.com", "http://beta.com"]')
     assert s3.cors_origins_list == ["http://alpha.com", "http://beta.com"]
+
+
+def test_cors_preflight_unallowed_origin():
+    client = TestClient(app)
+    response = client.options(
+        "/api/v1/auth/login",
+        headers={
+            "Origin": "http://evil-attacker.example.com",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "Content-Type",
+        },
+    )
+    # Disallowed origin in preflight should not receive allow-origin
+    assert response.headers.get("access-control-allow-origin") is None
+
+
+def test_cors_wildcard_rejected_in_production():
+    import pytest
+    with pytest.raises(ValueError, match="CORS_ORIGINS cannot contain"):
+        Settings(
+            ENVIRONMENT="production",
+            CORS_ORIGINS="*",
+            WS_ALLOWED_ORIGINS="http://example.com",
+            JWT_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\nMIIE...",
+            JWT_PUBLIC_KEY="-----BEGIN RSA PUBLIC KEY-----\nMIIB...",
+            DATABASE_URL="postgresql+asyncpg://user:pass@prod-db:5432/db",
+        )

@@ -139,3 +139,16 @@ async def test_dispatch_pong_updates_keepalive_timestamps(mock_conn, mock_app_st
     await dispatch_message(mock_conn, raw, mock_app_state)
     assert mock_conn.last_ping_time is None
     assert mock_conn.last_pong_time > 0
+
+
+@pytest.mark.asyncio
+async def test_dispatch_unknown_message_type_sanitizes_metric_label(mock_conn, mock_app_state):
+    from snapland.middleware.metrics import ws_messages_total
+
+    initial = ws_messages_total.labels(type="INVALID", direction="inbound")._value.get()
+    # Attacker sending arbitrary random type to attempt cardinality explosion
+    raw = '{"type":"ATTACKER_RANDOM_UUID_12345","payload":{}}'
+    await dispatch_message(mock_conn, raw, mock_app_state)
+
+    updated = ws_messages_total.labels(type="INVALID", direction="inbound")._value.get()
+    assert updated == initial + 1

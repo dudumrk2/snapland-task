@@ -92,5 +92,35 @@ async def test_retention_job_releases_lock_on_failure():
     with pytest.raises(RuntimeError, match="Database failure"):
         await run_retention_job(session_factory_mock, redis_mock, "instance-1")
 
-    # Verify lock release attempted via eval/Lua
+    # Verify lock release attempted via eval/Lua with exact instance_id and key
     assert redis_mock.eval.call_count == 1
+    eval_call_args = redis_mock.eval.call_args[0]
+    assert eval_call_args[1] == 1  # numkeys
+    assert eval_call_args[2] == RETENTION_LOCK_KEY  # key
+    assert eval_call_args[3] == "instance-1"  # expected owner
+
+
+@pytest.mark.asyncio
+async def test_retention_job_multi_batch_pagination():
+    redis_mock = MagicMock()
+    redis_mock.set = AsyncMock(return_value=True)
+
+    session_mock = MagicMock()
+    session_mock.commit = AsyncMock()
+
+    # When batch_size=2: first query returns 2 (full batch -> loop continues), second returns 1 (incomplete -> loop breaks)
+    m1 = MagicMock(rowcount=2)
+    m2 = MagicMock(rowcount=1)
+    # 4 tasks * 2 batches each = 8 calls
+    session_mock.execute = AsyncMock(side_effect=[m1, m2, m1, m2, m1, m2, m1, m2])
+
+    session_factory_mock = MagicMock()
+    session_factory_mock.return_value.__aenter__ = AsyncMock(return_value=session_mock)
+    session_factory_mock.return_value.__aexit__ = AsyncMock()
+
+    summary = await run_retention_job(session_factory_mock, redis_mock, "instance-1", batch_size=2)
+    assert summary["purged_soft_deleted_areas"] == 3
+    assert summary["pruned_area_versions"] == 3
+    assert summary["deleted_audit_logs"] == 3
+    assert summary["deleted_sessions"] == 3
+    assert session_mock.execute.call_count == 8

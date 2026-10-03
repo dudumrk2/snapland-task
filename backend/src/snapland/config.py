@@ -142,6 +142,8 @@ class Settings(BaseSettings):
         if self.ENVIRONMENT in ("production", "staging"):
             if self.WS_ALLOWED_ORIGINS == "*":
                 raise ValueError(f"WS_ALLOWED_ORIGINS cannot be '*' in {self.ENVIRONMENT}")
+            if "*" in self.cors_origins_list:
+                raise ValueError(f"CORS_ORIGINS cannot contain '*' in {self.ENVIRONMENT} when allow_credentials=True")
             if not self.JWT_PRIVATE_KEY or not self.JWT_PRIVATE_KEY.startswith("-----BEGIN"):
                 raise ValueError(f"Valid JWT_PRIVATE_KEY required in {self.ENVIRONMENT}")
             if not self.JWT_PUBLIC_KEY or not self.JWT_PUBLIC_KEY.startswith("-----BEGIN"):
