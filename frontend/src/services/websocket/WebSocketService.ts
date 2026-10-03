@@ -165,13 +165,13 @@ export class RealWebSocketService implements IWebSocketService {
       ws.onopen = () => {
         if (this.socket !== ws) return;
         this.consecutiveFailures = 0;
-        this.consecutiveAuthFailures = 0;
         this.clearReconnectTimer();
         this.updateState('connected');
       };
 
       ws.onmessage = (event: MessageEvent) => {
         if (this.socket !== ws) return;
+        this.consecutiveAuthFailures = 0;
         this.handleMessage(event.data);
       };
 

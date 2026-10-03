@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type { Coordinate } from '@snapland/shared-types';
+import type { Coordinate, Area } from '@snapland/shared-types';
 import {
   calculatePolygonAreaKm2,
   formatArea,
@@ -33,6 +33,12 @@ export function useDrawing(options?: UseDrawingOptions) {
   const pendingAppendRef = useRef<Coordinate[]>([]);
   const fromIndexRef = useRef<number>(0);
   const throttleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingCommitRef = useRef<{
+    shapeId: string;
+    resolve: (area?: Area) => void;
+    reject: (err: Error) => void;
+    timeoutId: ReturnType<typeof setTimeout>;
+  } | null>(null);
 
   // Compute live approximate area
   const previewPoints =
@@ -165,6 +171,11 @@ export function useDrawing(options?: UseDrawingOptions) {
       clearTimeout(throttleTimerRef.current);
       throttleTimerRef.current = null;
     }
+    if (pendingCommitRef.current) {
+      clearTimeout(pendingCommitRef.current.timeoutId);
+      pendingCommitRef.current.reject(new Error('Drawing cancelled'));
+      pendingCommitRef.current = null;
+    }
     if (shapeIdRef.current) {
       wsService.send({
         type: 'DRAW_CANCEL',
@@ -195,18 +206,45 @@ export function useDrawing(options?: UseDrawingOptions) {
       // and broadcasts AREA_SAVED with shapeId (HLD §9.1)
       // In degraded/polling mode: persist directly via HTTP POST (Task 8 / HLD §12.1)
       if (wsService.connectionState === 'connected' && currentShapeId) {
-        wsService.send({
-          type: 'DRAW_COMMIT',
-          payload: {
+        return new Promise<Area | void>((resolve, reject) => {
+          const timeoutId = setTimeout(async () => {
+            if (pendingCommitRef.current?.shapeId === currentShapeId) {
+              pendingCommitRef.current = null;
+              // On WS timeout, attempt HTTP fallback
+              try {
+                const area = await createArea(name, clean, currentShapeId);
+                setIsSaveModalOpen(false);
+                isDrawingRef.current = false;
+                setIsDrawing(false);
+                setPoints([]);
+                shapeIdRef.current = null;
+                resolve(area);
+              } catch (fallbackErr) {
+                reject(
+                  fallbackErr instanceof Error
+                    ? fallbackErr
+                    : new Error('Save timed out. Please try again.')
+                );
+              }
+            }
+          }, 5000);
+
+          pendingCommitRef.current = {
             shapeId: currentShapeId,
-            name,
-            points: clean,
-          },
+            resolve,
+            reject,
+            timeoutId,
+          };
+
+          wsService.send({
+            type: 'DRAW_COMMIT',
+            payload: {
+              shapeId: currentShapeId,
+              name,
+              points: clean,
+            },
+          });
         });
-        setIsSaveModalOpen(false);
-        isDrawingRef.current = false;
-        setIsDrawing(false);
-        setPoints([]);
       } else {
         const createdArea = await createArea(name, clean, currentShapeId);
         setIsSaveModalOpen(false);
@@ -222,8 +260,13 @@ export function useDrawing(options?: UseDrawingOptions) {
 
   // If an AREA_SAVED arrives with local shapeId, replace local preview with saved area
   useEffect(() => {
-    return wsService.on('AREA_SAVED', (payload) => {
+    const unsubSaved = wsService.on('AREA_SAVED', (payload) => {
       if (payload.shapeId && payload.shapeId === shapeIdRef.current) {
+        if (pendingCommitRef.current?.shapeId === payload.shapeId) {
+          clearTimeout(pendingCommitRef.current.timeoutId);
+          pendingCommitRef.current.resolve(payload.area);
+          pendingCommitRef.current = null;
+        }
         shapeIdRef.current = null;
         isDrawingRef.current = false;
         setIsDrawing(false);
@@ -232,14 +275,32 @@ export function useDrawing(options?: UseDrawingOptions) {
         selectArea(payload.area.id);
       }
     });
+
+    const unsubError = wsService.on('ERROR', (payload) => {
+      if (pendingCommitRef.current) {
+        clearTimeout(pendingCommitRef.current.timeoutId);
+        const errMsg = payload.message || payload.code || 'Failed to save area';
+        pendingCommitRef.current.reject(new Error(errMsg));
+        pendingCommitRef.current = null;
+      }
+    });
+
+    return () => {
+      unsubSaved();
+      unsubError();
+    };
   }, [wsService, selectArea]);
 
-  // Clean up throttle timer on unmount
+  // Clean up timers on unmount
   useEffect(() => {
     return () => {
       if (throttleTimerRef.current) {
         clearTimeout(throttleTimerRef.current);
         throttleTimerRef.current = null;
+      }
+      if (pendingCommitRef.current) {
+        clearTimeout(pendingCommitRef.current.timeoutId);
+        pendingCommitRef.current = null;
       }
     };
   }, []);

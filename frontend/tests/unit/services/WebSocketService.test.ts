@@ -165,4 +165,25 @@ describe('RealWebSocketService', () => {
 
     expect(resyncSpy).toHaveBeenCalled();
   });
+
+  it('repeated 4401 closes (>3) trigger connection failure backoff rather than infinite tight loop', async () => {
+    const ticketProvider = vi.fn().mockResolvedValue('test-ticket-repeat-4401');
+    wsService.connect(ticketProvider);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(wsService.connectionState).toBe('connected');
+
+    // Close with 4401 3 times without receiving messages (fast reconnects)
+    for (let i = 0; i < 3; i++) {
+      const socket = (wsService as unknown as { socket: MockWebSocket }).socket;
+      socket.close(4401, 'Token expired');
+      await vi.advanceTimersByTimeAsync(10);
+      expect(wsService.connectionState).toBe('connected');
+    }
+
+    // 4th 4401 should trigger handleConnectionFailure -> reconnecting with exponential backoff
+    const socket4 = (wsService as unknown as { socket: MockWebSocket }).socket;
+    socket4.close(4401, 'Token expired');
+    await vi.advanceTimersByTimeAsync(10);
+    expect(wsService.connectionState).toBe('reconnecting');
+  });
 });

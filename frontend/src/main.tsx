@@ -39,6 +39,10 @@ style.innerHTML = `
     padding: 4px 8px !important;
     box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
   }
+  .snapland-polygons-drawing path,
+  .snapland-polygons-drawing .leaflet-interactive {
+    pointer-events: none !important;
+  }
 `;
 document.head.appendChild(style);
 

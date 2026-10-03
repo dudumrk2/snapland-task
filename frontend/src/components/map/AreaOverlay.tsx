@@ -35,6 +35,11 @@ export const AreaOverlay: React.FC<AreaOverlayProps> = ({ map, isDrawing = false
     const pane = map.getPane('polygonsPane');
     if (pane) {
       pane.style.pointerEvents = isDrawing ? 'none' : 'auto';
+      if (isDrawing) {
+        pane.classList.add('snapland-polygons-drawing');
+      } else {
+        pane.classList.remove('snapland-polygons-drawing');
+      }
     }
   }, [map, isDrawing]);
 

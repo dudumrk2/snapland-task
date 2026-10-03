@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { RealAreaApi, mapServerVersionToVersion } from '../../../src/api/http/areaApi';
 import { RealAuthApi } from '../../../src/api/http/authApi';
-import { apiClient, mapServerAreaToArea } from '../../../src/api/http/client';
+import { apiClient, mapServerAreaToArea, registerRefreshHandler } from '../../../src/api/http/client';
 import { ConflictError } from '../../../src/api/interfaces/IAreaApi';
 import { useAuthStore } from '../../../src/store/authStore';
 
@@ -151,5 +151,41 @@ describe('HTTP API & Mapping', () => {
 
     const ticket = await authApi.getWsTicket();
     expect(ticket).toBe('ticket-xyz-456');
+  });
+
+  it('deduplicates concurrent 401s into a single refresh call', async () => {
+    let refreshCount = 0;
+    registerRefreshHandler(async () => {
+      refreshCount++;
+      await new Promise((r) => setTimeout(r, 10));
+      return 'refreshed-token-abc';
+    });
+
+    vi.spyOn(apiClient, 'request').mockResolvedValue({ data: { success: true } });
+
+    const rejectedHandler = (apiClient.interceptors.response as unknown as {
+      handlers: Array<{ rejected: (err: unknown) => Promise<unknown> }>;
+    }).handlers[0].rejected;
+
+    const mockAdapter = async (config: unknown) => ({
+      data: { success: true },
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config,
+    });
+
+    const req1 = { headers: {} as Record<string, string>, url: '/api/v1/areas/1', adapter: mockAdapter };
+    const req2 = { headers: {} as Record<string, string>, url: '/api/v1/areas/2', adapter: mockAdapter };
+
+    // Fire two 401s concurrently
+    const p1 = rejectedHandler({ config: req1, response: { status: 401 } });
+    const p2 = rejectedHandler({ config: req2, response: { status: 401 } });
+
+    await Promise.allSettled([p1, p2]);
+
+    expect(refreshCount).toBe(1);
+    expect(req1.headers.Authorization).toBe('Bearer refreshed-token-abc');
+    expect(req2.headers.Authorization).toBe('Bearer refreshed-token-abc');
   });
 });

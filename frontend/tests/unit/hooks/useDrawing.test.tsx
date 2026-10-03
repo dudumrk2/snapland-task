@@ -1,5 +1,5 @@
 import React from 'react';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useDrawing } from '../../../src/hooks/useDrawing';
 import { ApiProvider } from '../../../src/providers/ApiProvider';
@@ -95,5 +95,103 @@ describe('useDrawing', () => {
 
     expect(result.current.validationError).not.toBeNull();
     expect(result.current.isSaveModalOpen).toBe(false);
+  });
+
+  it('keeps points and modal open when HTTP save fails', async () => {
+    mockAreaApi.createArea = vi.fn().mockRejectedValue(new Error('Validation failed: self intersection'));
+
+    const { result } = renderHook(() => useDrawing(), { wrapper });
+
+    act(() => {
+      result.current.startDrawing();
+      result.current.addPoint({ lat: 32.0, lng: 34.8 });
+      result.current.addPoint({ lat: 32.0, lng: 34.9 });
+      result.current.addPoint({ lat: 32.1, lng: 34.85 });
+      result.current.finishDrawing();
+    });
+
+    expect(result.current.isSaveModalOpen).toBe(true);
+    expect(result.current.points).toHaveLength(3);
+
+    // Attempt save which fails
+    await act(async () => {
+      await expect(result.current.saveDrawing('Failed Area')).rejects.toThrow('Validation failed: self intersection');
+    });
+
+    // Points and modal must remain preserved
+    expect(result.current.points).toHaveLength(3);
+    expect(result.current.isSaveModalOpen).toBe(true);
+  });
+
+  it('flushes trailing DRAW_UPDATE after throttle timeout when user pauses', () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useDrawing(), { wrapper });
+
+    act(() => {
+      result.current.startDrawing();
+      // First point sends DRAW_START
+      result.current.addPoint({ lat: 32.0, lng: 34.8 });
+    });
+
+    expect(mockWsService.sentMessages).toHaveLength(1);
+    expect(mockWsService.sentMessages[0].type).toBe('DRAW_START');
+
+    // Add point 2 quickly
+    act(() => {
+      result.current.addPoint({ lat: 32.0, lng: 34.9 });
+    });
+
+    // Before timer advances, point 2 is in throttle buffer
+    // Advance timers by 70ms to fire trailing throttle flush
+    act(() => {
+      vi.advanceTimersByTime(70);
+    });
+
+    // DRAW_UPDATE must now be sent
+    const drawUpdates = mockWsService.sentMessages.filter((m) => m.type === 'DRAW_UPDATE');
+    expect(drawUpdates.length).toBeGreaterThanOrEqual(1);
+
+    vi.useRealTimers();
+  });
+
+  it('preserves points and rejects saveDrawing when WebSocket ERROR arrives', async () => {
+    // Connect mock WebSocket service and wait for connection
+    mockWsService.connect(async () => 'ticket');
+    await new Promise((r) => setTimeout(r, 150));
+    expect(mockWsService.connectionState).toBe('connected');
+
+    const { result } = renderHook(() => useDrawing(), { wrapper });
+
+    act(() => {
+      result.current.startDrawing();
+      result.current.addPoint({ lat: 32.0, lng: 34.8 });
+      result.current.addPoint({ lat: 32.0, lng: 34.9 });
+      result.current.addPoint({ lat: 32.1, lng: 34.85 });
+      result.current.finishDrawing();
+    });
+
+    expect(result.current.points).toHaveLength(3);
+
+    // Prevent MockWebSocketService from automatically dispatching AREA_SAVED
+    vi.spyOn(mockWsService, 'send').mockImplementation(() => {});
+
+    // Call saveDrawing
+    let savePromise: Promise<unknown>;
+    act(() => {
+      savePromise = result.current.saveDrawing('Polygon With Error');
+    });
+
+    // Simulate backend sending ERROR
+    act(() => {
+      mockWsService.dispatch('ERROR', {
+        code: 'VALIDATION_ERROR',
+        message: 'Polygon geometry intersects itself',
+      });
+    });
+
+    await expect(savePromise!).rejects.toThrow('Polygon geometry intersects itself');
+    // Points must remain intact
+    expect(result.current.points).toHaveLength(3);
+    expect(result.current.isSaveModalOpen).toBe(true);
   });
 });
