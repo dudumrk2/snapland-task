@@ -37,6 +37,7 @@ async def test_health_db_spatial_index(db_session):
 
 def test_health_db_missing_spatial_index_returns_500(monkeypatch):
     from unittest.mock import AsyncMock, MagicMock
+
     from snapland.infrastructure.db import session as db_session_module
 
     # Mock engine connection returning a Seq Scan plan without areas_geom_gist

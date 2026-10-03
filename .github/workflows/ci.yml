@@ -162,7 +162,7 @@ jobs:
 
       - name: Start Composed Test Stack
         run: |
-          docker compose -f infra/docker-compose.test.yml up -d --build
+          docker compose -f infra/docker-compose.test.yml up -d --build --scale backend=2
 
       - name: Smoke Test (/health/ready)
         run: |

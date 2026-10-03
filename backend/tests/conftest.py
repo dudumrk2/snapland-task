@@ -9,7 +9,6 @@ from sqlalchemy.pool import NullPool
 
 from main import app
 from snapland.api.deps import get_db
-from snapland.config import settings
 from snapland.infrastructure.db.models import Base
 
 TEST_DB_URL = os.environ.get("TEST_DATABASE_URL") or os.environ.get("DATABASE_URL") or "postgresql+asyncpg://snapland:password@localhost:5432/snapland"

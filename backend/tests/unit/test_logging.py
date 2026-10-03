@@ -1,4 +1,3 @@
-import pytest
 
 from main import censor_and_normalize
 

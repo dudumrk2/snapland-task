@@ -1,10 +1,6 @@
-import asyncio
-from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
-import uuid
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from snapland.infrastructure.jobs.retention import (
     RETENTION_LOCK_KEY,

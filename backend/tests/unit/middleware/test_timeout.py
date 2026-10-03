@@ -1,6 +1,5 @@
 import asyncio
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -78,8 +77,9 @@ def test_error_handler_timeout_error_returns_504():
 
 
 def test_error_handler_db_statement_timeout_returns_504():
-    from snapland.middleware.error_handler import setup_error_handlers
     from sqlalchemy.exc import OperationalError
+
+    from snapland.middleware.error_handler import setup_error_handlers
 
     app = FastAPI()
     setup_error_handlers(app)

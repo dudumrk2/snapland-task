@@ -18,12 +18,13 @@ def _generate_instance_id() -> str:
 def _get_or_create_dev_keys() -> tuple[str, str]:
     """Generates or loads a local development RSA-2048 keypair.
 
-    Persists to a temporary/ignored file so multiple uvicorn workers
-    share the identical keypair without committing secrets to version control.
+    Persists to a temporary/shared directory so multiple uvicorn workers and
+    container replicas share the identical keypair without committing secrets to version control.
     """
-    temp_dir = Path(tempfile.gettempdir())
-    priv_path = temp_dir / "snapland_dev_jwt_priv.pem"
-    pub_path = temp_dir / "snapland_dev_jwt_pub.pem"
+    keys_dir = Path(os.environ.get("JWT_KEYS_DIR", tempfile.gettempdir()))
+    keys_dir.mkdir(parents=True, exist_ok=True)
+    priv_path = keys_dir / "snapland_dev_jwt_priv.pem"
+    pub_path = keys_dir / "snapland_dev_jwt_pub.pem"
 
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
@@ -67,6 +68,14 @@ def _get_or_create_dev_keys() -> tuple[str, str]:
         os.replace(pub_tmp, pub_path)
         return priv_pem, pub_pem
     except Exception as e:
+        # If another process or replica created it concurrently, attempt to read it
+        if priv_path.exists() and pub_path.exists():
+            try:
+                priv_content = priv_path.read_text(encoding="utf-8")
+                pub_content = pub_path.read_text(encoding="utf-8")
+                return priv_content, pub_content
+            except Exception:
+                pass
         raise RuntimeError(f"Failed to generate dev JWT keys: {e}") from e
 
 

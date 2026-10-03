@@ -1,6 +1,6 @@
+import uuid
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
-import uuid
 
 import pytest
 from sqlalchemy import select

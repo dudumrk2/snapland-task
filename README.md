@@ -78,6 +78,9 @@ From the project root, run:
 ```bash
 docker compose -f infra/docker-compose.yml up -d --build
 ```
+> [!TIP]
+> In environments where Docker Compose runs without Swarm mode enabled and ignores `deploy.replicas`, scale the backend replicas explicitly with:
+> `docker compose -f infra/docker-compose.yml up -d --build --scale backend=2`
 
 ### Access Endpoints
 | Component | URL | Credentials / Notes |
@@ -87,6 +90,9 @@ docker compose -f infra/docker-compose.yml up -d --build
 | **API Health Check** | [http://localhost/health/ready](http://localhost/health/ready) | System readiness probe (DB + Redis + Workers) |
 | **Prometheus** | [http://localhost:9090](http://localhost:9090) | Metrics scraping engine & target status |
 | **Grafana Dashboard** | [http://localhost:3000](http://localhost:3000) | Username: `admin`, Password: `admin` |
+
+> [!WARNING]
+> **Production Security Note:** Ports 9090 (Prometheus) and 3000 (Grafana) are exposed for local development and monitoring demonstrations. In shared, staging, or production networks, restrict host port bindings, keep them behind an authenticated reverse proxy, and change default credentials.
 
 ### Verifying Service Health
 ```bash
@@ -230,9 +236,9 @@ Snapland maintains a strict test pyramid with ≥ 80% coverage enforced on all l
 ### Running Tests Locally
 
 ```bash
-# 1. Backend Linting & Strict Type Check
+# 1. Backend Linting & Type Checking
 ruff check backend/src/
-mypy --strict backend/src/
+mypy --config-file backend/pyproject.toml backend/src/
 
 # 2. Backend Unit & Integration Tests (Coverage >= 80%)
 pytest backend/tests/ -v --cov=snapland --cov-fail-under=80
@@ -249,7 +255,7 @@ git diff --exit-code packages/shared-types
 
 ### GitHub Actions CI Pipeline
 Every Pull Request automatically triggers `.github/workflows/ci.yml`:
-1. **Backend**: Runs Ruff, Mypy (`--strict`), and Pytest with 80% coverage check.
+1. **Backend**: Runs Ruff, Mypy (`backend/pyproject.toml`), and Pytest with 80% coverage check.
 2. **Frontend**: Runs `tsc --noEmit` and Vitest with 80% coverage check.
 3. **Type Drift**: Executes `scripts/gen_types.py` and asserts zero uncommitted drift in `packages/shared-types`.
 4. **Docker Build**: Validates that all production Docker images compile without errors.
