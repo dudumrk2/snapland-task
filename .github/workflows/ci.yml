@@ -61,6 +61,13 @@ jobs:
         run: |
           mypy --config-file backend/pyproject.toml backend/src/
 
+      - name: Run Database Migrations
+        env:
+          DATABASE_URL: postgresql+asyncpg://snapland:password@localhost:5432/snapland
+        run: |
+          cd backend
+          alembic upgrade head
+
       - name: Pytest with Coverage (>= 80%)
         env:
           DATABASE_URL: postgresql+asyncpg://snapland:password@localhost:5432/snapland
@@ -134,7 +141,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        uses: actions/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v3
 
       - name: Build All Images
         run: |

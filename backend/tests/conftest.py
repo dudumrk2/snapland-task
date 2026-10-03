@@ -26,6 +26,10 @@ async def db_session():
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        try:
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS areas_geom_gist ON areas USING GIST (geom)"))
+        except Exception:
+            pass
 
     async with TestingSessionLocal() as session:
         try:
