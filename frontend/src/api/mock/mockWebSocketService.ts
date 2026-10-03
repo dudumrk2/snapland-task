@@ -19,13 +19,14 @@ const MOCK_PEERS: PresenceUser[] = [
 
 export class MockWebSocketService implements IWebSocketService {
   private state: ConnectionState = 'disconnected';
-  private handlers = new Map<ServerMessageType, Set<MessageHandler<any>>>();
+  private handlers = new Map<ServerMessageType, Set<(payload: unknown, eventId?: string) => void>>();
   private stateChangeHandlers = new Set<(state: ConnectionState) => void>();
+  private resyncHandlers = new Set<() => void>();
   private _lastEventId: string | null = null;
-  private mockIntervalTimer: any = null;
-  private connectTimer: any = null;
+  private mockIntervalTimer: ReturnType<typeof setInterval> | null = null;
+  private connectTimer: ReturnType<typeof setTimeout> | null = null;
   /** Test-only sent messages log for verification */
-  public readonly sentMessages: WsMessage<any>[] = [];
+  public readonly sentMessages: WsMessage<ClientMessageType>[] = [];
 
   get connectionState(): ConnectionState {
     return this.state;
@@ -68,9 +69,9 @@ export class MockWebSocketService implements IWebSocketService {
     this.updateState('disconnected');
   }
 
-  send<T extends ClientMessageType>(message: WsMessage<T>): void {
+  send<T extends ClientMessageType>(message: WsMessage<T>): boolean {
     this.sentMessages.push(message);
-    if (this.state !== 'connected') return;
+    if (this.state !== 'connected') return false;
 
     // Handle client messages locally in mock
     switch (message.type) {
@@ -109,6 +110,7 @@ export class MockWebSocketService implements IWebSocketService {
         break;
       }
     }
+    return true;
   }
 
   on<T extends ServerMessageType>(
@@ -119,10 +121,11 @@ export class MockWebSocketService implements IWebSocketService {
       this.handlers.set(type, new Set());
     }
     const set = this.handlers.get(type)!;
-    set.add(handler);
+    const casted = handler as (payload: unknown, eventId?: string) => void;
+    set.add(casted);
 
     return () => {
-      set.delete(handler);
+      set.delete(casted);
     };
   }
 
@@ -132,6 +135,17 @@ export class MockWebSocketService implements IWebSocketService {
     return () => {
       this.stateChangeHandlers.delete(handler);
     };
+  }
+
+  onResync(handler: () => void): () => void {
+    this.resyncHandlers.add(handler);
+    return () => {
+      this.resyncHandlers.delete(handler);
+    };
+  }
+
+  triggerResync(): void {
+    this.resyncHandlers.forEach((handler) => handler());
   }
 
   private updateState(newState: ConnectionState): void {

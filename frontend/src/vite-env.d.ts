@@ -9,6 +9,10 @@ interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
 
+interface Window {
+  snaplandMap?: import('leaflet').Map;
+}
+
 declare module '@turf/area' {
   export default function area(geojson: any): number;
 }

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
-import { useDrawing } from '../../hooks/useDrawing';
+import { useDrawing, DrawingAbortedError } from '../../hooks/useDrawing';
 import { useAreasStore } from '../../store/areasStore';
 
 export interface DrawingLayerProps {
@@ -30,6 +30,15 @@ export const DrawingLayer: React.FC<DrawingLayerProps> = ({
   const isSaving = useAreasStore((s) => s.isSaving);
   const [areaName, setAreaName] = useState('');
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const activeLineRef = useRef<L.Polyline | null>(null);
   const closingLineRef = useRef<L.Polyline | null>(null);
@@ -208,15 +217,24 @@ export const DrawingLayer: React.FC<DrawingLayerProps> = ({
 
   const handleSaveSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!areaName.trim() || isSaving) return;
+    if (!areaName.trim() || isSaving || isSubmitting) return;
 
     setSaveError(null);
+    setIsSubmitting(true);
     try {
       await saveDrawing(areaName.trim());
-      setAreaName('');
+      if (isMountedRef.current) {
+        setAreaName('');
+      }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to save area';
-      setSaveError(msg);
+      if (isMountedRef.current && !(err instanceof DrawingAbortedError)) {
+        const msg = err instanceof Error ? err.message : 'Failed to save area';
+        setSaveError(msg);
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setIsSubmitting(false);
+      }
     }
   };
 
@@ -360,14 +378,14 @@ export const DrawingLayer: React.FC<DrawingLayerProps> = ({
                 <button
                   type="button"
                   onClick={cancelDrawing}
-                  disabled={isSaving}
+                  disabled={isSaving || isSubmitting}
                   style={{
                     padding: '8px 16px',
                     border: '1px solid #d1d5db',
                     borderRadius: '6px',
                     backgroundColor: '#ffffff',
                     color: '#374151',
-                    cursor: 'pointer',
+                    cursor: isSaving || isSubmitting ? 'not-allowed' : 'pointer',
                     fontSize: '14px',
                   }}
                 >
@@ -375,19 +393,19 @@ export const DrawingLayer: React.FC<DrawingLayerProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={isSaving || !areaName.trim()}
+                  disabled={isSaving || isSubmitting || !areaName.trim()}
                   style={{
                     padding: '8px 16px',
                     border: 'none',
                     borderRadius: '6px',
                     backgroundColor: '#2563eb',
                     color: '#ffffff',
-                    cursor: isSaving ? 'wait' : 'pointer',
+                    cursor: isSaving || isSubmitting ? 'wait' : 'pointer',
                     fontSize: '14px',
                     fontWeight: 600,
                   }}
                 >
-                  {isSaving ? 'Saving...' : 'Save'}
+                  {isSaving || isSubmitting ? 'Saving...' : 'Save'}
                 </button>
               </div>
             </form>

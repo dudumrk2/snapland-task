@@ -19,16 +19,17 @@ export interface WsPayloadMap {
   DRAW_CANCEL:  { shapeId: string };
   // both directions (server adds userId)
   CURSOR_MOVE:  { lat: number; lng: number; userId?: string };
+  // server → client
   REMOTE_DRAW:  { userId: string; shapeId: string; phase: 'start' | 'update' | 'commit' | 'cancel';
                   seq?: number; fromIndex?: number; append?: Coordinate[]; name?: string; points?: Coordinate[] };
   AREA_SAVED:   { area: Area; shapeId?: string };          // shapeId lets peers drop the matching preview
   AREA_UPDATED: { area: Area };
   AREA_DELETED: { areaId: string };
-  USER_JOINED:  { user: PresenceUser };
+  USER_JOINED:  PresenceUser | { user: PresenceUser };
   USER_LEFT:    { userId: string };
   PRESENCE_SNAPSHOT: { users: PresenceUser[] };
   RESYNC_REQUIRED: { reason?: string };
-  ERROR:        { code: string; message?: string; retryAfterMs?: number };
+  ERROR:        { code: string; message?: string | null; retryAfterMs?: number; shapeId?: string; refType?: ClientMessageType };
 }
 
 export interface WsMessage<T extends WsMessageType = WsMessageType> {

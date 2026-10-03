@@ -24,14 +24,17 @@ export function useAuth() {
       setError(null);
       try {
         const tokens = await authApi.login(req);
-        const currentUser = {
-          id: 'user-1',
-          email: req.email,
-          displayName: req.email.split('@')[0],
-        };
+        const currentStoreUser = useAuthStore.getState().user;
+        const currentUser =
+          currentStoreUser ||
+          (await authApi.getCurrentUser());
+        if (!currentUser) {
+          throw new Error('Login succeeded but user profile could not be retrieved.');
+        }
         setSession(currentUser, tokens.accessToken);
-      } catch (err: any) {
-        setError(err.message || 'Login failed');
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Login failed';
+        setError(msg);
         throw err;
       } finally {
         setActionLoading(false);
@@ -45,21 +48,16 @@ export function useAuth() {
       setActionLoading(true);
       setError(null);
       try {
-        const tokens = await authApi.register(req);
-        const currentUser = {
-          id: 'user-new',
-          email: req.email,
-          displayName: req.displayName,
-        };
-        setSession(currentUser, tokens.accessToken);
-      } catch (err: any) {
-        setError(err.message || 'Registration failed');
+        await authApi.register(req);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Registration failed';
+        setError(msg);
         throw err;
       } finally {
         setActionLoading(false);
       }
     },
-    [authApi, setSession, setActionLoading, setError]
+    [authApi, setActionLoading, setError]
   );
 
   const logout = useCallback(async () => {

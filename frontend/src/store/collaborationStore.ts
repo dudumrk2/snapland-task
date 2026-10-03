@@ -44,10 +44,49 @@ export const useCollaborationStore = create<CollaborationState>((set) => ({
   remoteShapes: {},
   lastEventId: null,
 
-  setConnectionState: (connectionState) => set({ connectionState }),
-  setPresenceUsers: (presenceUsers) => set({ presenceUsers }),
+  setConnectionState: (connectionState) =>
+    set((state) => {
+      if (
+        connectionState === 'disconnected' ||
+        connectionState === 'polling' ||
+        connectionState === 'reconnecting'
+      ) {
+        return {
+          connectionState,
+          remoteCursors: {},
+          remoteShapes: {},
+          presenceUsers: connectionState === 'disconnected' ? [] : state.presenceUsers,
+        };
+      }
+      return { connectionState };
+    }),
+  setPresenceUsers: (presenceUsers) =>
+    set((state) => {
+      const activeUserIds = new Set(presenceUsers.map((u) => u.userId));
+      const nextCursors = { ...state.remoteCursors };
+      for (const userId of Object.keys(nextCursors)) {
+        if (!activeUserIds.has(userId)) {
+          delete nextCursors[userId];
+        }
+      }
+      const nextShapes = { ...state.remoteShapes };
+      for (const [shapeId, shape] of Object.entries(nextShapes)) {
+        if (!activeUserIds.has(shape.userId)) {
+          delete nextShapes[shapeId];
+        }
+      }
+      return {
+        presenceUsers,
+        remoteCursors: nextCursors,
+        remoteShapes: nextShapes,
+      };
+    }),
   addPresenceUser: (user) =>
     set((state) => {
+      // WebSocketService normalizes USER_JOINED before dispatch, so `user` is
+      // always a plain PresenceUser here (no nested envelope).
+      if (!user || !user.userId) return state;
+
       if (state.presenceUsers.some((u) => u.userId === user.userId)) {
         return state;
       }
@@ -94,6 +133,22 @@ export const useCollaborationStore = create<CollaborationState>((set) => ({
         const next = { ...state.remoteShapes };
         delete next[shapeId];
         return { remoteShapes: next };
+      }
+
+      if (phase === 'commit') {
+        if (append && append.length > 0) {
+          return {
+            remoteShapes: {
+              ...state.remoteShapes,
+              [shapeId]: {
+                userId,
+                shapeId,
+                points: append,
+              },
+            },
+          };
+        }
+        return state;
       }
 
       if (phase === 'start') {
@@ -144,7 +199,7 @@ export const useCollaborationStore = create<CollaborationState>((set) => ({
           ...state.remoteShapes,
           [shapeId]: {
             ...existing,
-            points: [...existing.points, ...append],
+            points: [...existing.points, ...(append || [])],
           },
         },
       };
