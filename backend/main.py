@@ -241,7 +241,7 @@ async def lifespan(app: FastAPI):
     if not hasattr(app.state, "db_engine") or app.state.db_engine is None:
         app.state.db_engine = create_async_engine(
             settings.DATABASE_URL,
-            connect_args={"server_settings": {"statement_timeout": "30000"}},
+            connect_args={"server_settings": {"statement_timeout": "25000"}},
         )
     if not hasattr(app.state, "redis") or app.state.redis is None:
         app.state.redis = Redis.from_url(settings.REDIS_URL, decode_responses=True)

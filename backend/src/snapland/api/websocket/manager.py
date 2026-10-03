@@ -9,7 +9,7 @@ import structlog
 from fastapi import WebSocket
 
 from snapland.core.domain.user import User
-from snapland.core.domain.ws_messages import RemoteDrawMessage, ServerMessage
+from snapland.core.domain.ws_messages import PingMessage, RemoteDrawMessage, ServerMessage
 from snapland.middleware.metrics import (
     ws_connections_active,
     ws_messages_dropped_total,
@@ -215,6 +215,14 @@ class WebSocketManager:
                     pass
                 await self.disconnect(conn.conn_id)
 
+    async def _close_pong_timeout(self, conn: Connection) -> None:
+        logger.info("WebSocket keepalive pong timeout, closing connection", conn_id=conn.conn_id)
+        conn.closed = True
+        try:
+            await conn.websocket.close(code=1001, reason="pong_timeout")
+        except Exception:
+            pass
+
     async def _writer(self, conn: Connection):
         PING_INTERVAL = 30.0  # send keep-alive ping every 30s
         PONG_TIMEOUT = 10.0   # close if no pong within 10s
@@ -228,12 +236,7 @@ class WebSocketManager:
                 # Check if waiting for pong has exceeded timeout
                 if conn.last_ping_time is not None:
                     if now - conn.last_ping_time > PONG_TIMEOUT:
-                        logger.info("WebSocket keepalive pong timeout, closing connection", conn_id=conn.conn_id)
-                        conn.closed = True
-                        try:
-                            await conn.websocket.close(code=1001, reason="pong_timeout")
-                        except Exception:
-                            pass
+                        await self._close_pong_timeout(conn)
                         return
                     wait_timeout = max(0.01, PONG_TIMEOUT - (now - conn.last_ping_time))
                 else:
@@ -244,12 +247,7 @@ class WebSocketManager:
                 except asyncio.TimeoutError:
                     now = time.monotonic()
                     if conn.last_ping_time is not None:
-                        logger.info("WebSocket keepalive pong timeout, closing connection", conn_id=conn.conn_id)
-                        conn.closed = True
-                        try:
-                            await conn.websocket.close(code=1001, reason="pong_timeout")
-                        except Exception:
-                            pass
+                        await self._close_pong_timeout(conn)
                         return
                     else:
                         # Time to send PING frame
@@ -269,7 +267,6 @@ class WebSocketManager:
                 if conn.last_ping_time is None and now >= next_ping_time:
                     conn.last_ping_time = now
                     next_ping_time = now + PING_INTERVAL
-                    from snapland.core.domain.ws_messages import PingMessage
                     batch.append(PingMessage())
 
                 is_durable = msg.type in DURABLE_TYPES

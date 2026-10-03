@@ -108,10 +108,10 @@ Interactive OpenAPI documentation is accessible at `/docs` (Swagger UI) and `/re
 ### Health & Diagnostics
 - `GET /health/live` — Liveness probe (HTTP 200).
 - `GET /health/ready` — Readiness probe (verifies database and Redis connectivity).
-- `GET /health/db` — Internal diagnostic running `EXPLAIN` on spatial queries to verify `areas_geom_gist` index usage.
+- `GET /health/db` — Internal diagnostic running `EXPLAIN` on spatial queries to verify `areas_geom_gist` index usage. Restricted to internal network in production (enforced via reverse proxy).
 
 ### Observability
-- `GET /metrics` — Exposes Prometheus metrics (HTTP request durations, active WebSockets, message throughput, cache hit ratios, and connection pool status). Restricted to internal traffic via reverse proxy.
+- `GET /metrics` — Exposes Prometheus metrics (HTTP request durations, active WebSockets, message throughput, cache hit ratios, and connection pool status). Restricted to internal cluster/Prometheus network via reverse proxy (Nginx).
 
 ### Authentication
 - `POST /api/v1/auth/register` — Register a new account (`email`, `password`, `display_name`).

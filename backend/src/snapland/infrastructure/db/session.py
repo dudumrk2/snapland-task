@@ -7,7 +7,7 @@ engine = create_async_engine(
     echo=False,
     connect_args={
         "server_settings": {
-            "statement_timeout": "30000",
+            "statement_timeout": "25000",
         }
     },
 )

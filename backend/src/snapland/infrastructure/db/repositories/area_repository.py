@@ -21,7 +21,7 @@ from snapland.core.interfaces.repositories import AreaPage, IAreaRepository
 from snapland.infrastructure.db.models import AreaModel, AreaVersionModel, AuditLogModel
 from snapland.infrastructure.db.repositories.base import BaseRepository
 
-DB_TIMEOUT_SECONDS: float = 30.0
+DB_TIMEOUT_SECONDS: float = 28.0
 
 
 class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
@@ -39,6 +39,15 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
             except Exception:
                 pass
             raise TimeoutError(f"Database query timed out after {DB_TIMEOUT_SECONDS}s") from e
+        except Exception as e:
+            exc_str = str(e).lower()
+            if "statement timeout" in exc_str or "canceling statement" in exc_str or "57014" in exc_str:
+                try:
+                    await self.session.rollback()
+                except Exception:
+                    pass
+                raise TimeoutError("Database query canceled by statement timeout") from e
+            raise
 
     async def _commit_with_timeout(self) -> None:
         try:
@@ -49,6 +58,15 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
             except Exception:
                 pass
             raise TimeoutError(f"Database commit timed out after {DB_TIMEOUT_SECONDS}s") from e
+        except Exception as e:
+            exc_str = str(e).lower()
+            if "statement timeout" in exc_str or "canceling statement" in exc_str or "57014" in exc_str:
+                try:
+                    await self.session.rollback()
+                except Exception:
+                    pass
+                raise TimeoutError("Database commit canceled by statement timeout") from e
+            raise
 
     def _coords_to_polygon_text(self, coords: Sequence[Coordinate]) -> str:
         if not coords:
