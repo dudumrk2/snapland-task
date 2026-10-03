@@ -39,16 +39,13 @@ export class RealAuthApi implements IAuthApi {
     // Temporarily set accessToken in store so getCurrentUser request has Bearer token
     useAuthStore.setState({ accessToken: tokenResponse.accessToken });
 
-    // Fetch user profile
+    // Fetch user profile — required to establish a valid session.
+    // If this fails we must not silently store a synthetic user id.
     const user = await this.getCurrentUser();
-    if (user) {
-      useAuthStore.getState().setSession(user, tokenResponse.accessToken);
-    } else {
-      useAuthStore.getState().setSession(
-        { id: 'me', email: req.email, displayName: req.email.split('@')[0] },
-        tokenResponse.accessToken
-      );
+    if (!user) {
+      throw new Error('Login succeeded but user profile could not be retrieved. Please try again.');
     }
+    useAuthStore.getState().setSession(user, tokenResponse.accessToken);
 
     return tokenResponse;
   }

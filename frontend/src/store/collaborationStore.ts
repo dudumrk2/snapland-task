@@ -83,14 +83,14 @@ export const useCollaborationStore = create<CollaborationState>((set) => ({
     }),
   addPresenceUser: (user) =>
     set((state) => {
-      const actualUser: PresenceUser =
-        (user as unknown as { user?: PresenceUser }).user || user;
-      if (!actualUser || !actualUser.userId) return state;
+      // WebSocketService normalizes USER_JOINED before dispatch, so `user` is
+      // always a plain PresenceUser here (no nested envelope).
+      if (!user || !user.userId) return state;
 
-      if (state.presenceUsers.some((u) => u.userId === actualUser.userId)) {
+      if (state.presenceUsers.some((u) => u.userId === user.userId)) {
         return state;
       }
-      return { presenceUsers: [...state.presenceUsers, actualUser] };
+      return { presenceUsers: [...state.presenceUsers, user] };
     }),
   removePresenceUser: (userId) =>
     set((state) => {

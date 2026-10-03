@@ -98,6 +98,10 @@ export function setupWebSocketSubscriptions(
           coordinates: editedCoordinates,
           version: local?.version ?? 1,
         },
+        // Synthetic Area representing "deleted on server". Callers can detect
+        // this case by checking that currentArea.name ends with '(Deleted)' or
+        // by comparing currentArea.version to localArea.version + 1.
+        // Empty-string sentinels are used for fields unavailable after deletion.
         currentArea: {
           id: payload.areaId,
           name: `${local?.name || 'Area'} (Deleted on server)`,
@@ -105,9 +109,9 @@ export function setupWebSocketSubscriptions(
           areaKm2: local?.areaKm2 ?? 0,
           version: (local?.version ?? 1) + 1,
           createdBy: local?.createdBy ?? '',
-          lastEditedBy: 'system',
-          createdAt: local?.createdAt ?? new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          lastEditedBy: '',
+          createdAt: local?.createdAt ?? '',
+          updatedAt: '',
         },
       });
     }

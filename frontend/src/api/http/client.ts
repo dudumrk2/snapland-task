@@ -37,13 +37,13 @@ export function mapServerAreaToArea(raw: unknown): Area {
     ? item.createdAt
     : typeof item.created_at === 'string'
     ? item.created_at
-    : new Date().toISOString();
+    : '';
 
   const updatedAt = typeof item.updatedAt === 'string'
     ? item.updatedAt
     : typeof item.updated_at === 'string'
     ? item.updated_at
-    : new Date().toISOString();
+    : '';
 
   return {
     id: String(item.id || ''),
@@ -113,8 +113,8 @@ apiClient.interceptors.response.use(
             version: details?.current_version ?? 1,
             createdBy: '',
             lastEditedBy: '',
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
+            createdAt: '',
+            updatedAt: '',
           } as Area);
 
       throw new ConflictError(
@@ -160,8 +160,13 @@ apiClient.interceptors.response.use(
         const newAccessToken = await refreshPromise;
 
         if (newAccessToken) {
-          originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-          return apiClient(originalRequest);
+          return apiClient({
+            ...originalRequest,
+            headers: {
+              ...originalRequest.headers,
+              Authorization: `Bearer ${newAccessToken}`,
+            },
+          });
         }
       } catch (refreshErr) {
         useAuthStore.getState().clearSession();

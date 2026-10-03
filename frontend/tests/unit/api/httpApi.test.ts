@@ -188,9 +188,11 @@ describe('HTTP API & Mapping', () => {
 
     await Promise.allSettled([p1, p2]);
 
+    // Only one refresh should have been called despite two concurrent 401s
     expect(refreshCount).toBe(1);
-    expect(req1.headers.Authorization).toBe('Bearer refreshed-token-abc');
-    expect(req2.headers.Authorization).toBe('Bearer refreshed-token-abc');
+    // Original config objects are NOT mutated — the retry uses a spread copy
+    expect(req1.headers.Authorization).toBeUndefined();
+    expect(req2.headers.Authorization).toBeUndefined();
   });
 
   it('calls /auth/register with user credentials and resolves void', async () => {
