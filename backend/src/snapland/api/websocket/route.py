@@ -65,6 +65,7 @@ async def websocket_endpoint(
     active_manager: WebSocketManager = getattr(websocket.app.state, "ws_manager", None) or manager
 
     conn_id = str(uuid.uuid4())
+    structlog.contextvars.bind_contextvars(conn_id=conn_id, user_id=str(user_id))
     conn = await active_manager.connect(websocket, user_id, conn_id, register=False)
     if not conn:
         return

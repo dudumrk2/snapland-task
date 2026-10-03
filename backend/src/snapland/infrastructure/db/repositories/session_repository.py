@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -23,7 +24,7 @@ class SessionRepository(BaseRepository[SessionModel], ISessionRepository):
             expires_at=model.expires_at,
             revoked_at=model.revoked_at,
             ip_address=str(model.ip_address) if model.ip_address else "",
-            created_at=model.created_at
+            created_at=model.created_at,
         )
 
     async def create(self, session: Session) -> Session:
@@ -35,15 +36,15 @@ class SessionRepository(BaseRepository[SessionModel], ISessionRepository):
             expires_at=datetime.fromisoformat(session.expires_at) if isinstance(session.expires_at, str) else session.expires_at,
             revoked_at=datetime.fromisoformat(session.revoked_at) if isinstance(session.revoked_at, str) and session.revoked_at else session.revoked_at,
             ip_address=session.ip_address,
-            created_at=datetime.fromisoformat(session.created_at) if isinstance(session.created_at, str) else session.created_at
+            created_at=datetime.fromisoformat(session.created_at) if isinstance(session.created_at, str) else session.created_at,
         )
         self.session.add(model)
-        await self.session.flush()
+        await asyncio.wait_for(self.session.flush(), timeout=30.0)
         return self._to_domain(model)
 
     async def get_by_token_hash(self, token_hash: str) -> Session | None:
         stmt = select(SessionModel).where(SessionModel.refresh_token_hash == token_hash)
-        result = await self.session.execute(stmt)
+        result = await asyncio.wait_for(self.session.execute(stmt), timeout=30.0)
         model = result.scalar_one_or_none()
         return self._to_domain(model) if model else None
 
@@ -53,7 +54,7 @@ class SessionRepository(BaseRepository[SessionModel], ISessionRepository):
             .where(SessionModel.id == session_id)
             .values(revoked_at=datetime.now(timezone.utc))
         )
-        await self.session.execute(stmt)
+        await asyncio.wait_for(self.session.execute(stmt), timeout=30.0)
 
     async def revoke_family(self, family_id: UUID) -> int:
         stmt = (
@@ -62,8 +63,8 @@ class SessionRepository(BaseRepository[SessionModel], ISessionRepository):
             .where(SessionModel.revoked_at.is_(None))
             .values(revoked_at=datetime.now(timezone.utc))
         )
-        result = await self.session.execute(stmt)
-        return getattr(result, 'rowcount', 0)
+        result = await asyncio.wait_for(self.session.execute(stmt), timeout=30.0)
+        return getattr(result, "rowcount", 0)
 
     async def revoke_all_for_user(self, user_id: UUID) -> int:
         stmt = (
@@ -72,5 +73,5 @@ class SessionRepository(BaseRepository[SessionModel], ISessionRepository):
             .where(SessionModel.revoked_at.is_(None))
             .values(revoked_at=datetime.now(timezone.utc))
         )
-        result = await self.session.execute(stmt)
-        return getattr(result, 'rowcount', 0)
+        result = await asyncio.wait_for(self.session.execute(stmt), timeout=30.0)
+        return getattr(result, "rowcount", 0)

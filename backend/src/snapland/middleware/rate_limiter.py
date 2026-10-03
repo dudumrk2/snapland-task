@@ -34,6 +34,7 @@ else
 end
 """
 
+
 class RedisRateLimiter(IRateLimiter):
     def __init__(self, redis: Redis) -> None:
         self.redis = redis
@@ -44,22 +45,30 @@ class RedisRateLimiter(IRateLimiter):
         current_time_ms = int(time.time() * 1000)
         window_ms = window_seconds * 1000
         member_id = f"{current_time_ms}-{uuid.uuid4()}"
-        
+
         result = await self._script(
             keys=[key],
-            args=[current_time_ms, window_ms, limit, member_id]
+            args=[current_time_ms, window_ms, limit, member_id],
         )
         allowed = bool(result[0])
         retry_after_ms = int(result[1])
-        
+
+        if not allowed:
+            try:
+                from snapland.middleware.metrics import rate_limit_hits_total
+                rate_limit_hits_total.labels(bucket=bucket).inc()
+            except Exception:
+                pass
+
         return RateLimitResult(allowed=allowed, retry_after_ms=retry_after_ms)
+
 
 async def check_rate_limit(
     limiter: IRateLimiter,
     user_id: str,
     bucket: str,
     limit: int,
-    window_seconds: int
+    window_seconds: int,
 ) -> None:
     result = await limiter.check_limit(user_id, bucket, limit, window_seconds)
     if not result.allowed:
@@ -79,8 +88,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     content={
                         "error": "RATE_LIMITED",
                         "message": "Rate limit exceeded",
-                        "details": {"retryAfterMs": res.retry_after_ms}
+                        "details": {"retryAfterMs": res.retry_after_ms},
                     },
-                    headers={"Retry-After": str(max(1, res.retry_after_ms // 1000))}
+                    headers={"Retry-After": str(max(1, res.retry_after_ms // 1000))},
                 )
         return await call_next(request)

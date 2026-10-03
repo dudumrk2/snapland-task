@@ -24,7 +24,10 @@ async def get_current_user_id(request: Request, auth_svc: IAuthService = Depends
     token = auth.split(" ")[1]
     from snapland.config import settings
     try:
-        return auth_svc.verify_access_token(token, settings.JWT_PUBLIC_KEY)
+        user_id = auth_svc.verify_access_token(token, settings.JWT_PUBLIC_KEY)
+        import structlog
+        structlog.contextvars.bind_contextvars(user_id=str(user_id))
+        return user_id
     except Exception:
         raise AuthError("Token not verified")
 

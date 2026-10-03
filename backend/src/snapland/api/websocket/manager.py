@@ -10,6 +10,12 @@ from fastapi import WebSocket
 
 from snapland.core.domain.user import User
 from snapland.core.domain.ws_messages import RemoteDrawMessage, ServerMessage
+from snapland.middleware.metrics import (
+    ws_connections_active,
+    ws_messages_dropped_total,
+    ws_messages_total,
+    ws_outbound_queue_depth,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -18,19 +24,8 @@ DURABLE_TYPES = frozenset({"AREA_SAVED", "AREA_UPDATED", "AREA_DELETED"})
 # client silently stale (RESYNC_REQUIRED) or never getting an error feedback.
 PROTECTED_TYPES = frozenset({"RESYNC_REQUIRED", "PRESENCE_SNAPSHOT", "ERROR"})
 
-WS_MESSAGES_DROPPED_TOTAL: Optional[Any] = None
-try:
-    from prometheus_client import REGISTRY, Counter
-    if "ws_messages_dropped_total" in REGISTRY._names_to_collectors:
-        WS_MESSAGES_DROPPED_TOTAL = REGISTRY._names_to_collectors["ws_messages_dropped_total"]
-    else:
-        WS_MESSAGES_DROPPED_TOTAL = Counter(
-            "ws_messages_dropped_total",
-            "Total dropped ephemeral messages due to full queue",
-            ["reason"],
-        )
-except Exception:
-    WS_MESSAGES_DROPPED_TOTAL = None
+# Maintain module-level alias for backwards compatibility with tests
+WS_MESSAGES_DROPPED_TOTAL = ws_messages_dropped_total
 
 
 class ConnectionQueue:
@@ -120,12 +115,19 @@ class Connection:
 
         is_durable = message.type in DURABLE_TYPES
 
+        try:
+            ws_outbound_queue_depth.observe(self.queue.qsize())
+        except Exception:
+            pass
+
         if self.queue.full():
             evicted = self.queue.evict_oldest_ephemeral()
             if evicted:
                 self.dropped_count += 1
-                if WS_MESSAGES_DROPPED_TOTAL is not None:
-                    WS_MESSAGES_DROPPED_TOTAL.labels(reason="queue_full").inc()
+                try:
+                    ws_messages_dropped_total.labels(reason="queue_full").inc()
+                except Exception:
+                    pass
             else:
                 # Queue has only durables or protected messages
                 if is_durable or message.type in PROTECTED_TYPES:
@@ -137,8 +139,10 @@ class Connection:
                 else:
                     # Drop incoming ephemeral message without closing socket
                     self.dropped_count += 1
-                    if WS_MESSAGES_DROPPED_TOTAL is not None:
-                        WS_MESSAGES_DROPPED_TOTAL.labels(reason="queue_full").inc()
+                    try:
+                        ws_messages_dropped_total.labels(reason="queue_full").inc()
+                    except Exception:
+                        pass
                     return
 
         self.queue.push(message)
@@ -170,6 +174,12 @@ class WebSocketManager:
         conn.writer_task = asyncio.create_task(self._writer(conn))
         if register:
             self.active_connections[conn_id] = conn
+
+        try:
+            ws_connections_active.inc()
+        except Exception:
+            pass
+
         return conn
 
     def register(self, conn: Connection) -> None:
@@ -180,6 +190,10 @@ class WebSocketManager:
         conn = self.all_connections.pop(conn_id, None)
         self.active_connections.pop(conn_id, None)
         if conn:
+            try:
+                ws_connections_active.dec()
+            except Exception:
+                pass
             conn.closed = True
             if conn.writer_task:
                 conn.writer_task.cancel()
@@ -200,7 +214,7 @@ class WebSocketManager:
                 await self.disconnect(conn.conn_id)
 
     async def _writer(self, conn: Connection):
-        PING_INTERVAL = 25.0   # send keep-alive probe after this many seconds idle
+        PING_INTERVAL = 25.0  # send keep-alive probe after this many seconds idle
 
         try:
             while not conn.closed:
@@ -238,6 +252,13 @@ class WebSocketManager:
 
                 coalesced = self._coalesce(batch)
                 data = [m.model_dump(by_alias=True, exclude_none=True) for m in coalesced]
+
+                for m in coalesced:
+                    try:
+                        ws_messages_total.labels(type=m.type, direction="outbound").inc()
+                    except Exception:
+                        pass
+
                 await conn.websocket.send_text(orjson.dumps(data).decode("utf-8"))
 
         except asyncio.CancelledError:
