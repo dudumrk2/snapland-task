@@ -39,8 +39,8 @@ export function normalizeArea(raw: any): Area {
     version: typeof raw.version === 'number' ? raw.version : 1,
     createdBy: String(raw.createdBy ?? raw.created_by ?? ''),
     lastEditedBy: String(raw.lastEditedBy ?? raw.last_edited_by ?? ''),
-    createdAt: String(raw.createdAt ?? raw.created_at ?? ''),
-    updatedAt: String(raw.updatedAt ?? raw.updated_at ?? ''),
+    createdAt: String(raw.createdAt ?? raw.created_at ?? new Date().toISOString()),
+    updatedAt: String(raw.updatedAt ?? raw.updated_at ?? new Date().toISOString()),
   };
 }
 
@@ -55,7 +55,7 @@ export function normalizeAreaVersion(raw: any): AreaVersion {
         : typeof raw.area_km2 === 'number'
         ? raw.area_km2
         : 0,
-    createdAt: String(raw.createdAt ?? raw.created_at ?? ''),
+    createdAt: String(raw.createdAt ?? raw.created_at ?? new Date().toISOString()),
     diff: raw.diff ?? {},
   };
 }
@@ -93,6 +93,7 @@ export class AreaApi implements IAreaApi {
           originalRequest._retry = true;
           try {
             const tokenResponse = await this.authApi.refresh();
+            useAuthStore.getState().setAccessToken(tokenResponse.accessToken);
             const user = useAuthStore.getState().user;
             if (user) {
               useAuthStore.getState().setSession(user, tokenResponse.accessToken);
@@ -112,6 +113,7 @@ export class AreaApi implements IAreaApi {
           const rawCurrent = details.current_area || details.currentArea;
           const currentArea = normalizeArea(rawCurrent);
           const currentVersion = details.current_version ?? details.currentVersion ?? currentArea.version;
+          currentArea.version = currentVersion;
           const message = body?.message || 'Area was modified by another user';
 
           return Promise.reject(new ConflictError(message, currentArea, currentVersion));

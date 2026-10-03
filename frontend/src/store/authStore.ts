@@ -14,6 +14,7 @@ export interface AuthState {
   isActionLoading: boolean;  // True during login/register/logout actions
   error: string | null;
   setSession: (user: UserSession, accessToken: string) => void;
+  setAccessToken: (accessToken: string) => void;
   clearSession: () => void;
   setBootstrapping: (isBootstrapping: boolean) => void;
   setActionLoading: (isActionLoading: boolean) => void;
@@ -35,6 +36,11 @@ export const useAuthStore = create<AuthState>((set) => ({
       isBootstrapping: false,
       isActionLoading: false,
       error: null,
+    }),
+  setAccessToken: (accessToken) =>
+    set({
+      accessToken,
+      isAuthenticated: Boolean(accessToken),
     }),
   clearSession: () =>
     set({

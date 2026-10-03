@@ -157,4 +157,75 @@ describe('authApi (HTTP client)', () => {
       displayName: 'Dudu Dev',
     });
   });
+
+  it('deduplicates concurrent refresh() calls into a single HTTP request (preventing token family revocation)', async () => {
+    const client = (authApi as any).client;
+
+    let resolvePromise: (val: any) => void;
+    const delayedPromise = new Promise((resolve) => {
+      resolvePromise = resolve;
+    });
+
+    vi.spyOn(client, 'post').mockReturnValueOnce(delayedPromise as any);
+
+    // Call refresh() 3 times concurrently
+    const p1 = authApi.refresh();
+    const p2 = authApi.refresh();
+    const p3 = authApi.refresh();
+
+    // Resolve the single HTTP request
+    resolvePromise!({
+      data: {
+        access_token: 'shared-refreshed-token',
+        token_type: 'Bearer',
+        expires_in: 900,
+      },
+    });
+
+    const [r1, r2, r3] = await Promise.all([p1, p2, p3]);
+
+    expect(client.post).toHaveBeenCalledTimes(1);
+    expect(client.post).toHaveBeenCalledWith('/auth/refresh');
+    expect(r1.accessToken).toBe('shared-refreshed-token');
+    expect(r2.accessToken).toBe('shared-refreshed-token');
+    expect(r3.accessToken).toBe('shared-refreshed-token');
+  });
+
+  it('getWsTicket transparently refreshes access token if initial request returns 401', async () => {
+    useAuthStore.getState().setSession(
+      { id: 'u1', email: 'test@snapland.io', displayName: 'User' },
+      'expired-jwt-token'
+    );
+
+    const client = (authApi as any).client;
+    vi.spyOn(client, 'post')
+      // 1. Initial /auth/ws-ticket fails with 401
+      .mockRejectedValueOnce({
+        response: { status: 401 },
+      })
+      // 2. /auth/refresh succeeds
+      .mockResolvedValueOnce({
+        data: {
+          access_token: 'fresh-jwt-token',
+          token_type: 'Bearer',
+          expires_in: 900,
+        },
+      })
+      // 3. Retry /auth/ws-ticket succeeds with refreshed token
+      .mockResolvedValueOnce({
+        data: { ticket: 'retry-ticket-xyz' },
+      });
+
+    const ticket = await authApi.getWsTicket();
+
+    expect(client.post).toHaveBeenNthCalledWith(1, '/auth/ws-ticket', null, {
+      headers: { Authorization: 'Bearer expired-jwt-token' },
+    });
+    expect(client.post).toHaveBeenNthCalledWith(2, '/auth/refresh');
+    expect(client.post).toHaveBeenNthCalledWith(3, '/auth/ws-ticket', null, {
+      headers: { Authorization: 'Bearer fresh-jwt-token' },
+    });
+    expect(ticket).toBe('retry-ticket-xyz');
+  });
 });
+

@@ -20,6 +20,7 @@ export class WebSocketService implements IWebSocketService {
   private consecutiveFailures = 0;
   private reconnectTimer: any = null;
   private isIntentionallyClosed = false;
+  private isConnecting = false;
   private customBaseUrl?: string;
 
   private readonly BACKOFF_DELAYS = [1000, 2000, 4000, 8000, 16000, 30000];
@@ -44,6 +45,7 @@ export class WebSocketService implements IWebSocketService {
 
   disconnect(): void {
     this.isIntentionallyClosed = true;
+    this.isConnecting = false;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -52,7 +54,15 @@ export class WebSocketService implements IWebSocketService {
       // Prevent onclose handler from attempting reconnect
       const socket = this.ws;
       this.ws = null;
-      socket.close(1000, 'User disconnect');
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onclose = null;
+      socket.onerror = null;
+      try {
+        socket.close(1000, 'User disconnect');
+      } catch {
+        // ignore
+      }
     }
     this.consecutiveFailures = 0;
     this.updateState('disconnected');
@@ -138,73 +148,94 @@ export class WebSocketService implements IWebSocketService {
 
   private async attemptConnection(): Promise<void> {
     if (this.isIntentionallyClosed) return;
-    if (this.state === 'connected') return;
-
-    if (this.consecutiveFailures >= 5) {
-      this.updateState('polling');
-    } else if (this.state === 'disconnected') {
-      this.updateState('connecting');
-    } else {
-      this.updateState('reconnecting');
-    }
-
-    if (!this.ticketProvider) {
-      this.handleConnectionFailure();
-      return;
-    }
-
-    let ticket: string;
-    try {
-      ticket = await this.ticketProvider();
-    } catch {
-      this.handleConnectionFailure();
-      return;
-    }
-
-    if (this.isIntentionallyClosed) return;
-
-    const wsUrl = this.buildUrl(ticket);
+    if (this.state === 'connected' || this.isConnecting) return;
+    this.isConnecting = true;
 
     try {
-      const socket = new WebSocket(wsUrl);
-      this.ws = socket;
+      if (this.consecutiveFailures >= 5) {
+        this.updateState('polling');
+      } else if (this.state === 'disconnected') {
+        this.updateState('connecting');
+      } else {
+        this.updateState('reconnecting');
+      }
 
-      socket.onopen = () => {
-        if (this.ws !== socket) return;
-        this.consecutiveFailures = 0;
-        this.updateState('connected');
-      };
-
-      socket.onmessage = (event: MessageEvent) => {
-        if (this.ws !== socket) return;
-        this.handleRawFrame(event.data);
-      };
-
-      socket.onclose = (event: CloseEvent) => {
-        if (this.ws === socket) {
-          this.ws = null;
-        }
-
-        if (this.isIntentionallyClosed) {
-          this.updateState('disconnected');
-          return;
-        }
-
-        // Close code 4401: token expired (15 min) -> immediate reconnect with fresh ticket, not counted as failure
-        if (event.code === 4401) {
-          this.updateState('connecting');
-          this.scheduleReconnect(0);
-          return;
-        }
-
+      if (!this.ticketProvider) {
         this.handleConnectionFailure();
-      };
+        return;
+      }
 
-      socket.onerror = () => {
-        // onclose will handle recovery
-      };
-    } catch {
-      this.handleConnectionFailure();
+      let ticket: string;
+      try {
+        ticket = await this.ticketProvider();
+      } catch {
+        this.handleConnectionFailure();
+        return;
+      }
+
+      if (this.isIntentionallyClosed) return;
+
+      const wsUrl = this.buildUrl(ticket);
+
+      // Clean up any existing socket before opening a new one
+      if (this.ws) {
+        const oldSocket = this.ws;
+        this.ws = null;
+        oldSocket.onopen = null;
+        oldSocket.onmessage = null;
+        oldSocket.onclose = null;
+        oldSocket.onerror = null;
+        try {
+          oldSocket.close(1000, 'Superseded');
+        } catch {
+          // ignore
+        }
+      }
+
+      try {
+        const socket = new WebSocket(wsUrl);
+        this.ws = socket;
+
+        socket.onopen = () => {
+          if (this.ws !== socket) return;
+          this.consecutiveFailures = 0;
+          this.updateState('connected');
+        };
+
+        socket.onmessage = (event: MessageEvent) => {
+          if (this.ws !== socket) return;
+          this.handleRawFrame(event.data);
+        };
+
+        socket.onclose = (event: CloseEvent) => {
+          if (this.ws !== socket) {
+            return;
+          }
+          this.ws = null;
+
+          if (this.isIntentionallyClosed) {
+            this.updateState('disconnected');
+            return;
+          }
+
+          // Close code 4401: token expired (15 min) -> immediate reconnect with fresh ticket, not counted as failure
+          if (event.code === 4401) {
+            this.updateState('connecting');
+            this.scheduleReconnect(100);
+            return;
+          }
+
+          this.handleConnectionFailure();
+        };
+
+        socket.onerror = () => {
+          // onclose will handle recovery
+        };
+      } catch {
+        this.handleConnectionFailure();
+      }
+    } finally {
+      this.isConnecting = false;
     }
   }
 

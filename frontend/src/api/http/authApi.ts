@@ -9,6 +9,7 @@ import { useAuthStore } from '../../store/authStore';
 
 export class AuthApi implements IAuthApi {
   private client: AxiosInstance;
+  private refreshPromise: Promise<TokenResponse> | null = null;
 
   constructor(baseURL: string = '/api/v1') {
     this.client = axios.create({
@@ -47,14 +48,24 @@ export class AuthApi implements IAuthApi {
   }
 
   async refresh(): Promise<TokenResponse> {
-    const res = await this.client.post('/auth/refresh');
-    const data = res.data;
-    const tokenResponse: TokenResponse = {
-      accessToken: data.access_token ?? data.accessToken,
-      tokenType: data.token_type ?? data.tokenType ?? 'Bearer',
-      expiresIn: data.expires_in ?? data.expiresIn ?? 900,
-    };
-    return tokenResponse;
+    if (!this.refreshPromise) {
+      this.refreshPromise = this.client
+        .post('/auth/refresh')
+        .then((res) => {
+          const data = res.data;
+          const tokenResponse: TokenResponse = {
+            accessToken: data.access_token ?? data.accessToken,
+            tokenType: data.token_type ?? data.tokenType ?? 'Bearer',
+            expiresIn: data.expires_in ?? data.expiresIn ?? 900,
+          };
+          useAuthStore.getState().setAccessToken(tokenResponse.accessToken);
+          return tokenResponse;
+        })
+        .finally(() => {
+          this.refreshPromise = null;
+        });
+    }
+    return this.refreshPromise;
   }
 
   async logout(): Promise<void> {
@@ -71,20 +82,39 @@ export class AuthApi implements IAuthApi {
   }
 
   async getWsTicket(): Promise<string> {
-    const token = useAuthStore.getState().accessToken;
+    let token = useAuthStore.getState().accessToken;
     if (!token) {
-      throw new Error('Cannot get WS ticket: unauthenticated');
+      const refreshed = await this.refresh();
+      token = refreshed.accessToken;
     }
-    const res = await this.client.post(
-      '/auth/ws-ticket',
-      null,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+
+    try {
+      const res = await this.client.post(
+        '/auth/ws-ticket',
+        null,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      return res.data.ticket;
+    } catch (err: any) {
+      if (err?.response?.status === 401) {
+        const refreshed = await this.refresh();
+        const res = await this.client.post(
+          '/auth/ws-ticket',
+          null,
+          {
+            headers: {
+              Authorization: `Bearer ${refreshed.accessToken}`,
+            },
+          }
+        );
+        return res.data.ticket;
       }
-    );
-    return res.data.ticket;
+      throw err;
+    }
   }
 
   async getCurrentUser(tokenOverride?: string): Promise<AuthUser | null> {

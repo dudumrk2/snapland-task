@@ -183,8 +183,8 @@ describe('WebSocketService (Real client)', () => {
     // Server closes after 15 min with code 4401
     socket.close(4401, 'Token expired');
 
-    // Immediate reconnect without backoff
-    await vi.advanceTimersByTimeAsync(10);
+    // Immediate reconnect without backoff (after 100ms debounce)
+    await vi.advanceTimersByTimeAsync(150);
     await flushAsync();
 
     expect(ticketProvider).toHaveBeenCalledTimes(2);

@@ -24,12 +24,13 @@ export function useAuth() {
       setError(null);
       try {
         const tokens = await authApi.login(req);
-        const currentUser = {
+        const currentUser = await authApi.getCurrentUser(tokens.accessToken);
+        const user = currentUser ?? {
           id: 'user-1',
           email: req.email,
           displayName: req.email.split('@')[0],
         };
-        setSession(currentUser, tokens.accessToken);
+        setSession(user, tokens.accessToken);
       } catch (err: any) {
         setError(err.message || 'Login failed');
         throw err;
@@ -46,12 +47,13 @@ export function useAuth() {
       setError(null);
       try {
         const tokens = await authApi.register(req);
-        const currentUser = {
+        const currentUser = await authApi.getCurrentUser(tokens.accessToken);
+        const user = currentUser ?? {
           id: 'user-new',
           email: req.email,
           displayName: req.displayName,
         };
-        setSession(currentUser, tokens.accessToken);
+        setSession(user, tokens.accessToken);
       } catch (err: any) {
         setError(err.message || 'Registration failed');
         throw err;
