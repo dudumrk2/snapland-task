@@ -45,6 +45,10 @@ export function mapServerAreaToArea(raw: unknown): Area {
     ? item.updated_at
     : '';
 
+  if (!item.id) {
+    console.warn('mapServerAreaToArea: received area without id', item);
+  }
+
   return {
     id: String(item.id || ''),
     name: String(item.name || ''),
@@ -107,7 +111,7 @@ apiClient.interceptors.response.use(
         ? mapServerAreaToArea(details.current_area)
         : ({
             id: '',
-            name: '',
+            name: '(server state unavailable)',
             coordinates: [],
             areaKm2: 0,
             version: details?.current_version ?? 1,

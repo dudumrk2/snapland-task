@@ -2,12 +2,13 @@ import type {
   Area,
   AreasPage,
   AreaVersion,
-  CreateAreaRequest,
   UpdateAreaRequest,
   BoundingBox,
 } from '@snapland/shared-types';
-import { IAreaApi } from '../interfaces/IAreaApi';
+import { IAreaApi, CreateAreaRequestWithShapeId } from '../interfaces/IAreaApi';
 import { apiClient, mapServerAreaToArea } from './client';
+
+export type { CreateAreaRequestWithShapeId };
 
 export function mapServerVersionToVersion(raw: unknown): AreaVersion {
   const item = raw as Record<string, unknown> | null | undefined;
@@ -57,10 +58,6 @@ export function mapServerVersionToVersion(raw: unknown): AreaVersion {
     createdAt,
     diff,
   };
-}
-
-export interface CreateAreaRequestWithShapeId extends CreateAreaRequest {
-  shapeId?: string;
 }
 
 export class RealAreaApi implements IAreaApi {

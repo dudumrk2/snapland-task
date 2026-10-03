@@ -113,6 +113,7 @@ export function setupWebSocketSubscriptions(
           createdAt: local?.createdAt ?? '',
           updatedAt: '',
         },
+        deletedOnServer: true,
       });
     }
 

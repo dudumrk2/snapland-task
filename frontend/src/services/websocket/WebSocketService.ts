@@ -305,6 +305,9 @@ export class RealWebSocketService implements IWebSocketService {
       return;
     }
 
+    // Active session receiving messages: reset consecutive auth failure counter
+    this.consecutiveAuthFailures = 0;
+
     const messages = Array.isArray(parsed) ? parsed : [parsed];
 
     for (const msg of messages) {

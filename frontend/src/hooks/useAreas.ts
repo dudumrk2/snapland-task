@@ -85,8 +85,8 @@ export function useAreas() {
         const newArea = await areaApi.createArea({
           name,
           coordinates,
-          ...(shapeId ? { shapeId } : {}),
-        } as Parameters<typeof areaApi.createArea>[0]);
+          shapeId,
+        });
         addArea(newArea);
         selectArea(newArea.id);
         return newArea;

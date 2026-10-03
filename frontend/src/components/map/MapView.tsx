@@ -56,10 +56,14 @@ export const MapView: React.FC<MapViewProps> = ({
 
     setMapInstance(map);
     setLayerManager(lm);
-    (window as unknown as { snaplandMap?: L.Map }).snaplandMap = map;
+    if (typeof window !== 'undefined') {
+      window.snaplandMap = map;
+    }
 
     return () => {
-      delete (window as unknown as { snaplandMap?: L.Map }).snaplandMap;
+      if (typeof window !== 'undefined') {
+        delete window.snaplandMap;
+      }
       lm.destroy();
       map.remove();
     };
@@ -76,25 +80,32 @@ export const MapView: React.FC<MapViewProps> = ({
     debounceMs: 250,
   });
 
+  const boundsRef = useRef(bounds);
+  boundsRef.current = bounds;
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+
   // Degraded mode (polling): refetch viewport every 5s (Task 8 / HLD §9.7)
   useEffect(() => {
-    if (connectionState !== 'polling' || !bounds) return;
+    if (connectionState !== 'polling') return;
 
     const interval = setInterval(() => {
-      fetchAreasInBounds(bounds, zoom);
+      if (boundsRef.current) {
+        fetchAreasInBounds(boundsRef.current, zoomRef.current);
+      }
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [connectionState, bounds, zoom, fetchAreasInBounds]);
+  }, [connectionState, fetchAreasInBounds]);
 
   // RESYNC_REQUIRED: notify useAreas to refetch viewport over HTTP (Task 3 / HLD §9.7)
   useEffect(() => {
     return wsService.on('RESYNC_REQUIRED', () => {
-      if (bounds) {
-        fetchAreasInBounds(bounds, zoom);
+      if (boundsRef.current) {
+        fetchAreasInBounds(boundsRef.current, zoomRef.current);
       }
     });
-  }, [wsService, bounds, zoom, fetchAreasInBounds]);
+  }, [wsService, fetchAreasInBounds]);
 
   // Track cursor movement for collaborative presence
   useEffect(() => {

@@ -21,6 +21,7 @@ export class MockWebSocketService implements IWebSocketService {
   private state: ConnectionState = 'disconnected';
   private handlers = new Map<ServerMessageType, Set<(payload: unknown, eventId?: string) => void>>();
   private stateChangeHandlers = new Set<(state: ConnectionState) => void>();
+  private resyncHandlers = new Set<() => void>();
   private _lastEventId: string | null = null;
   private mockIntervalTimer: ReturnType<typeof setInterval> | null = null;
   private connectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -134,6 +135,17 @@ export class MockWebSocketService implements IWebSocketService {
     return () => {
       this.stateChangeHandlers.delete(handler);
     };
+  }
+
+  onResync(handler: () => void): () => void {
+    this.resyncHandlers.add(handler);
+    return () => {
+      this.resyncHandlers.delete(handler);
+    };
+  }
+
+  triggerResync(): void {
+    this.resyncHandlers.forEach((handler) => handler());
   }
 
   private updateState(newState: ConnectionState): void {

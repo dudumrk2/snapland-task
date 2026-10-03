@@ -16,7 +16,8 @@ export const ConflictDialog: React.FC = () => {
 
   if (!conflict) return null;
 
-  const { localArea, currentArea } = conflict;
+  const { localArea, currentArea, deletedOnServer } = conflict;
+  const isDeleted = Boolean(deletedOnServer || currentArea.name.endsWith('(Deleted on server)'));
 
   const handleAcceptRemote = () => {
     resolveAcceptRemote();
@@ -79,10 +80,12 @@ export const ConflictDialog: React.FC = () => {
           </div>
           <div>
             <h3 style={{ margin: 0, fontSize: '18px', color: '#111827' }}>
-              Edit Conflict Detected (OCC)
+              {isDeleted ? 'Area Deleted on Server' : 'Edit Conflict Detected (OCC)'}
             </h3>
             <p style={{ margin: 0, fontSize: '12px', color: '#6b7280' }}>
-              Another user updated this area while you were editing.
+              {isDeleted
+                ? 'Another user deleted this area while you were editing.'
+                : 'Another user updated this area while you were editing.'}
             </p>
           </div>
         </div>
@@ -151,9 +154,13 @@ export const ConflictDialog: React.FC = () => {
               gap: 2,
             }}
           >
-            <strong style={{ fontSize: '14px' }}>Accept Remote</strong>
+            <strong style={{ fontSize: '14px' }}>
+              {isDeleted ? 'Accept Deletion (Discard)' : 'Accept Remote'}
+            </strong>
             <span style={{ fontSize: '12px', color: '#6b7280' }}>
-              Discard your local edits and adopt the latest remote version.
+              {isDeleted
+                ? 'Discard your local edits and accept that this area has been removed.'
+                : 'Discard your local edits and adopt the latest remote version.'}
             </span>
           </button>
 
@@ -161,24 +168,25 @@ export const ConflictDialog: React.FC = () => {
           <button
             type="button"
             onClick={handleForceOverwrite}
-            disabled={isProcessing}
+            disabled={isProcessing || isDeleted}
             style={{
               padding: '10px 16px',
-              backgroundColor: '#fee2e2',
-              color: '#991b1b',
-              border: '1px solid #fca5a5',
+              backgroundColor: isDeleted ? '#f3f4f6' : '#fee2e2',
+              color: isDeleted ? '#9ca3af' : '#991b1b',
+              border: `1px solid ${isDeleted ? '#e5e7eb' : '#fca5a5'}`,
               borderRadius: 8,
               textAlign: 'left',
-              cursor: isProcessing ? 'wait' : 'pointer',
+              cursor: isDeleted ? 'not-allowed' : isProcessing ? 'wait' : 'pointer',
               display: 'flex',
               flexDirection: 'column',
               gap: 2,
             }}
           >
             <strong style={{ fontSize: '14px' }}>Force Overwrite</strong>
-            <span style={{ fontSize: '12px', color: '#b91c1c' }}>
-              Overwrite the remote changes with your local geometry (creates v
-              {currentArea.version + 1}).
+            <span style={{ fontSize: '12px', color: isDeleted ? '#9ca3af' : '#b91c1c' }}>
+              {isDeleted
+                ? 'Cannot overwrite an area that was deleted on the server. Use Save as New instead.'
+                : `Overwrite the remote changes with your local geometry (creates v${currentArea.version + 1}).`}
             </span>
           </button>
 

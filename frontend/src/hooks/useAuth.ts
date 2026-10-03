@@ -27,11 +27,10 @@ export function useAuth() {
         const currentStoreUser = useAuthStore.getState().user;
         const currentUser =
           currentStoreUser ||
-          (await authApi.getCurrentUser()) || {
-            id: 'user-1',
-            email: req.email,
-            displayName: req.email.split('@')[0],
-          };
+          (await authApi.getCurrentUser());
+        if (!currentUser) {
+          throw new Error('Login succeeded but user profile could not be retrieved.');
+        }
         setSession(currentUser, tokens.accessToken);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Login failed';

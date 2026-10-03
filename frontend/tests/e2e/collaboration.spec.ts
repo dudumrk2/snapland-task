@@ -46,12 +46,13 @@ test.describe('Real-Time Collaboration', () => {
       await expect(pageB.locator('.area-list')).toContainText(areaName, { timeout: 10000 });
 
       // 5. Concurrent edit of one area -> loser gets ConflictDialog
-      // On User A, the newly created area is already selected. If not, select it.
-      if (!await pageA.getByRole('button', { name: /edit vertices/i }).isVisible()) {
-        await pageA.locator('.area-list').getByText(areaName).first().click();
-      }
+      // User A selects created area if needed and waits for edit button
+      await pageA.locator('.area-list').getByText(areaName).first().click();
+      await expect(pageA.getByRole('button', { name: /edit vertices/i })).toBeVisible({ timeout: 10000 });
+
       // User B selects the created area from their list
       await pageB.locator('.area-list').getByText(areaName).first().click();
+      await expect(pageB.getByRole('button', { name: /edit vertices/i })).toBeVisible({ timeout: 10000 });
 
       // Both click "Edit Vertices"
       await pageA.getByRole('button', { name: /edit vertices/i }).click();

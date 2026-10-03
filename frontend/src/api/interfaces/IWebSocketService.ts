@@ -25,6 +25,7 @@ export interface IWebSocketService {
   /** Server frames are JSON arrays (micro-batches); the service unpacks them and dispatches per message. */
   on<T extends ServerMessageType>(type: T, handler: MessageHandler<T>): () => void;
   onStateChange(handler: (state: ConnectionState) => void): () => void;
+  onResync(handler: () => void): () => void;
   readonly connectionState: ConnectionState; // 'polling' = degraded mode after 5 consecutive failures
   readonly lastEventId: string | null; // sent as ?lastEventId= on reconnect
 }
