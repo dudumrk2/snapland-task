@@ -49,5 +49,15 @@ def test_cors_origins_list_string_and_fallback():
 
     # Fallback when empty string
     s2 = Settings(CORS_ORIGINS="")
-    assert "http://localhost:5173" in s2.cors_origins_list
-    assert "http://localhost:80" in s2.cors_origins_list
+    assert s2.cors_origins_list == [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:80",
+        "http://127.0.0.1:80",
+        "http://localhost",
+        "http://127.0.0.1",
+    ]
+
+    # JSON array string parsing
+    s3 = Settings(CORS_ORIGINS='["http://alpha.com", "http://beta.com"]')
+    assert s3.cors_origins_list == ["http://alpha.com", "http://beta.com"]

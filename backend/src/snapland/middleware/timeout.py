@@ -40,5 +40,6 @@ class TimeoutMiddleware(BaseHTTPMiddleware):
                 content={
                     "error": "TIMEOUT",
                     "message": f"Request timed out after {timeout_int}s",
+                    "details": {},
                 },
             )
