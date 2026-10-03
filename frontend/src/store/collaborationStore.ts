@@ -100,6 +100,22 @@ export const useCollaborationStore = create<CollaborationState>((set) => ({
         return { remoteShapes: next };
       }
 
+      if (phase === 'commit') {
+        if (append && append.length > 0) {
+          return {
+            remoteShapes: {
+              ...state.remoteShapes,
+              [shapeId]: {
+                userId,
+                shapeId,
+                points: append,
+              },
+            },
+          };
+        }
+        return state;
+      }
+
       if (phase === 'start') {
         return {
           remoteShapes: {
@@ -148,7 +164,7 @@ export const useCollaborationStore = create<CollaborationState>((set) => ({
           ...state.remoteShapes,
           [shapeId]: {
             ...existing,
-            points: [...existing.points, ...append],
+            points: [...existing.points, ...(append || [])],
           },
         },
       };

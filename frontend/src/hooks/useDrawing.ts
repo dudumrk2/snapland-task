@@ -222,8 +222,6 @@ export function useDrawing(options?: UseDrawingOptions) {
           const timeoutId = setTimeout(() => {
             if (pendingCommitRef.current?.shapeId === currentShapeId) {
               pendingCommitRef.current = null;
-              // Generate fresh shapeId for next retry so retries do not conflict
-              shapeIdRef.current = `shape-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
               reject(new Error('Save timed out. Please try again.'));
             }
           }, COMMIT_TIMEOUT_MS);
@@ -315,8 +313,6 @@ export function useDrawing(options?: UseDrawingOptions) {
           const retrySec = payload.retryAfterMs ? Math.ceil(payload.retryAfterMs / 1000) : 1;
           errMsg = payload.message || `Rate limited. Please retry in ${retrySec}s.`;
         }
-        // Generate fresh shapeId for next retry
-        shapeIdRef.current = `shape-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
         pendingCommitRef.current.reject(new Error(errMsg));
         pendingCommitRef.current = null;
       }

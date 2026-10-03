@@ -20,8 +20,8 @@ export interface WsPayloadMap {
   // both directions (server adds userId)
   CURSOR_MOVE:  { lat: number; lng: number; userId?: string };
   // server → client
-  REMOTE_DRAW:  { userId: string; shapeId: string; phase: 'start' | 'update' | 'cancel';
-                  seq: number; fromIndex: number; append: Coordinate[] };
+  REMOTE_DRAW:  { userId: string; shapeId: string; phase: 'start' | 'update' | 'commit' | 'cancel';
+                  seq?: number; fromIndex?: number; append?: Coordinate[] };
   AREA_SAVED:   { area: Area; shapeId?: string };          // shapeId lets peers drop the matching preview
   AREA_UPDATED: { area: Area };
   AREA_DELETED: { areaId: string };
@@ -29,7 +29,7 @@ export interface WsPayloadMap {
   USER_LEFT:    { userId: string };
   PRESENCE_SNAPSHOT: { users: PresenceUser[] };
   RESYNC_REQUIRED: Record<string, never>;
-  ERROR:        { code: string; message: string; retryAfterMs?: number; shapeId?: string; refType?: ClientMessageType };
+  ERROR:        { code: string; message?: string | null; retryAfterMs?: number; shapeId?: string; refType?: ClientMessageType };
 }
 
 export interface WsMessage<T extends WsMessageType = WsMessageType> {
