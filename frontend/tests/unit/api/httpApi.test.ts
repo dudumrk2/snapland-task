@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { RealAreaApi, mapServerVersionToVersion } from '../../../src/api/http/areaApi';
 import { RealAuthApi } from '../../../src/api/http/authApi';
 import { apiClient, mapServerAreaToArea, registerRefreshHandler } from '../../../src/api/http/client';
@@ -9,6 +9,10 @@ describe('HTTP API & Mapping', () => {
   beforeEach(() => {
     useAuthStore.getState().clearSession();
     vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    registerRefreshHandler(null);
   });
 
   it('maps server area snake_case to frontend Area camelCase', () => {

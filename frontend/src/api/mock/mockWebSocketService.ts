@@ -68,9 +68,9 @@ export class MockWebSocketService implements IWebSocketService {
     this.updateState('disconnected');
   }
 
-  send<T extends ClientMessageType>(message: WsMessage<T>): void {
+  send<T extends ClientMessageType>(message: WsMessage<T>): boolean {
     this.sentMessages.push(message);
-    if (this.state !== 'connected') return;
+    if (this.state !== 'connected') return false;
 
     // Handle client messages locally in mock
     switch (message.type) {
@@ -109,6 +109,7 @@ export class MockWebSocketService implements IWebSocketService {
         break;
       }
     }
+    return true;
   }
 
   on<T extends ServerMessageType>(

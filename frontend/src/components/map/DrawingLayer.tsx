@@ -218,7 +218,9 @@ export const DrawingLayer: React.FC<DrawingLayerProps> = ({
       setAreaName('');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to save area';
-      setSaveError(msg);
+      if (msg !== 'Drawing cancelled' && msg !== 'Component unmounted') {
+        setSaveError(msg);
+      }
     } finally {
       setIsSubmitting(false);
     }

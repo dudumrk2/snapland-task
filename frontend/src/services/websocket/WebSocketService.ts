@@ -65,10 +65,12 @@ export class RealWebSocketService implements IWebSocketService {
     this.updateState('disconnected');
   }
 
-  send<T extends ClientMessageType>(message: WsMessage<T>): void {
+  send<T extends ClientMessageType>(message: WsMessage<T>): boolean {
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
       this.socket.send(JSON.stringify(message));
+      return true;
     }
+    return false;
   }
 
   on<T extends ServerMessageType>(
@@ -164,13 +166,13 @@ export class RealWebSocketService implements IWebSocketService {
 
       ws.onopen = () => {
         if (this.socket !== ws) return;
-        this.consecutiveFailures = 0;
         this.clearReconnectTimer();
         this.updateState('connected');
       };
 
       ws.onmessage = (event: MessageEvent) => {
         if (this.socket !== ws) return;
+        this.consecutiveFailures = 0;
         this.consecutiveAuthFailures = 0;
         this.handleMessage(event.data);
       };

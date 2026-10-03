@@ -125,33 +125,48 @@ describe('useDrawing', () => {
 
   it('flushes trailing DRAW_UPDATE after throttle timeout when user pauses', () => {
     vi.useFakeTimers();
-    const { result } = renderHook(() => useDrawing(), { wrapper });
+    try {
+      const { result } = renderHook(() => useDrawing(), { wrapper });
 
-    act(() => {
-      result.current.startDrawing();
-      // First point sends DRAW_START
-      result.current.addPoint({ lat: 32.0, lng: 34.8 });
-    });
+      act(() => {
+        result.current.startDrawing();
+        // First point sends DRAW_START
+        result.current.addPoint({ lat: 32.0, lng: 34.8 });
+      });
 
-    expect(mockWsService.sentMessages).toHaveLength(1);
-    expect(mockWsService.sentMessages[0].type).toBe('DRAW_START');
+      expect(mockWsService.sentMessages).toHaveLength(1);
+      expect(mockWsService.sentMessages[0].type).toBe('DRAW_START');
 
-    // Add point 2 quickly
-    act(() => {
-      result.current.addPoint({ lat: 32.0, lng: 34.9 });
-    });
+      // Add point 2 - this will send the first DRAW_UPDATE immediately (elapsed from 0 is > 66ms)
+      act(() => {
+        result.current.addPoint({ lat: 32.0, lng: 34.9 });
+      });
 
-    // Before timer advances, point 2 is in throttle buffer
-    // Advance timers by 70ms to fire trailing throttle flush
-    act(() => {
-      vi.advanceTimersByTime(70);
-    });
+      const initialDrawUpdates = mockWsService.sentMessages.filter((m) => m.type === 'DRAW_UPDATE');
+      expect(initialDrawUpdates).toHaveLength(1);
 
-    // DRAW_UPDATE must now be sent
-    const drawUpdates = mockWsService.sentMessages.filter((m) => m.type === 'DRAW_UPDATE');
-    expect(drawUpdates.length).toBeGreaterThanOrEqual(1);
+      // Add point 3 immediately within 66ms window (< 66ms elapsed)
+      act(() => {
+        result.current.addPoint({ lat: 32.05, lng: 34.95 });
+      });
 
-    vi.useRealTimers();
+      // Point 3 must be buffered in pendingAppendRef and not yet sent
+      expect(mockWsService.sentMessages.filter((m) => m.type === 'DRAW_UPDATE')).toHaveLength(1);
+
+      // Advance timers by 70ms to fire trailing throttle flush
+      act(() => {
+        vi.advanceTimersByTime(70);
+      });
+
+      // Second DRAW_UPDATE must now be sent
+      const finalDrawUpdates = mockWsService.sentMessages.filter((m) => m.type === 'DRAW_UPDATE');
+      expect(finalDrawUpdates).toHaveLength(2);
+      expect(
+        (finalDrawUpdates[1].payload as { append: Array<{ lat: number; lng: number }> }).append
+      ).toEqual([{ lat: 32.05, lng: 34.95 }]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('preserves points and rejects saveDrawing when WebSocket ERROR arrives', async () => {
@@ -173,7 +188,10 @@ describe('useDrawing', () => {
     expect(result.current.points).toHaveLength(3);
 
     // Prevent MockWebSocketService from automatically dispatching AREA_SAVED
-    vi.spyOn(mockWsService, 'send').mockImplementation(() => {});
+    vi.spyOn(mockWsService, 'send').mockImplementation((msg) => {
+      mockWsService.sentMessages.push(msg);
+      return true;
+    });
 
     // Call saveDrawing
     let savePromise: Promise<unknown>;
@@ -193,5 +211,61 @@ describe('useDrawing', () => {
     // Points must remain intact
     expect(result.current.points).toHaveLength(3);
     expect(result.current.isSaveModalOpen).toBe(true);
+  });
+
+  it('ignores RATE_LIMITED error and allows saveDrawing to resolve on AREA_SAVED', async () => {
+    mockWsService.connect(async () => 'ticket');
+    await new Promise((r) => setTimeout(r, 150));
+
+    const { result } = renderHook(() => useDrawing(), { wrapper });
+
+    act(() => {
+      result.current.startDrawing();
+      result.current.addPoint({ lat: 32.0, lng: 34.8 });
+      result.current.addPoint({ lat: 32.0, lng: 34.9 });
+      result.current.addPoint({ lat: 32.1, lng: 34.85 });
+      result.current.finishDrawing();
+    });
+
+    vi.spyOn(mockWsService, 'send').mockImplementation((msg) => {
+      mockWsService.sentMessages.push(msg);
+      return true;
+    });
+
+    let savePromise: Promise<unknown>;
+    act(() => {
+      savePromise = result.current.saveDrawing('Polygon With Rate Limit');
+    });
+
+    // Dispatch RATE_LIMITED error (e.g. from mouse moves) - should NOT reject commit
+    act(() => {
+      mockWsService.dispatch('ERROR', {
+        code: 'RATE_LIMITED',
+        message: 'Rate limit exceeded for drawing deltas',
+      });
+    });
+
+    // Now dispatch AREA_SAVED with the active shapeId
+    const activeShapeId = (mockWsService.sentMessages.find((m) => m.type === 'DRAW_COMMIT')?.payload as { shapeId: string }).shapeId;
+    act(() => {
+      mockWsService.dispatch('AREA_SAVED', {
+        shapeId: activeShapeId,
+        area: {
+          id: 'area-123',
+          name: 'Polygon With Rate Limit',
+          coordinates: result.current.points,
+          areaKm2: 1.5,
+          version: 1,
+          createdBy: 'user-1',
+          lastEditedBy: 'user-1',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    });
+
+    await expect(savePromise!).resolves.toBeDefined();
+    expect(result.current.isSaveModalOpen).toBe(false);
+    expect(result.current.points).toHaveLength(0);
   });
 });

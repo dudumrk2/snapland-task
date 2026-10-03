@@ -207,27 +207,13 @@ export function useDrawing(options?: UseDrawingOptions) {
       // In degraded/polling mode: persist directly via HTTP POST (Task 8 / HLD §12.1)
       if (wsService.connectionState === 'connected' && currentShapeId) {
         return new Promise<Area | void>((resolve, reject) => {
-          const timeoutId = setTimeout(async () => {
+          const timeoutId = setTimeout(() => {
             if (pendingCommitRef.current?.shapeId === currentShapeId) {
               pendingCommitRef.current = null;
-              // On WS timeout, attempt HTTP fallback
-              try {
-                const area = await createArea(name, clean, currentShapeId);
-                setIsSaveModalOpen(false);
-                isDrawingRef.current = false;
-                setIsDrawing(false);
-                setPoints([]);
-                shapeIdRef.current = null;
-                resolve(area);
-              } catch (fallbackErr) {
-                reject(
-                  fallbackErr instanceof Error
-                    ? fallbackErr
-                    : new Error('Save timed out. Please try again.')
-                );
-              }
+              // Reject on timeout so points and modal remain open; no duplicate area creation
+              reject(new Error('Save timed out. Please try again.'));
             }
-          }, 5000);
+          }, 8000);
 
           pendingCommitRef.current = {
             shapeId: currentShapeId,
@@ -236,7 +222,7 @@ export function useDrawing(options?: UseDrawingOptions) {
             timeoutId,
           };
 
-          wsService.send({
+          const sent = wsService.send({
             type: 'DRAW_COMMIT',
             payload: {
               shapeId: currentShapeId,
@@ -244,6 +230,22 @@ export function useDrawing(options?: UseDrawingOptions) {
               points: clean,
             },
           });
+
+          if (sent === false) {
+            clearTimeout(timeoutId);
+            pendingCommitRef.current = null;
+            // Socket was not OPEN; fall back to HTTP createArea
+            createArea(name, clean, currentShapeId)
+              .then((createdArea) => {
+                setIsSaveModalOpen(false);
+                isDrawingRef.current = false;
+                setIsDrawing(false);
+                setPoints([]);
+                shapeIdRef.current = null;
+                resolve(createdArea);
+              })
+              .catch(reject);
+          }
         });
       } else {
         const createdArea = await createArea(name, clean, currentShapeId);
@@ -278,6 +280,16 @@ export function useDrawing(options?: UseDrawingOptions) {
 
     const unsubError = wsService.on('ERROR', (payload) => {
       if (pendingCommitRef.current) {
+        // Ignore rate limiting errors on commit (they apply to delta updates/cursor moves)
+        if (payload.code === 'RATE_LIMITED') {
+          return;
+        }
+        // If error specifies a shapeId, ignore if it belongs to a different shape
+        const errShapeId = (payload as { shapeId?: string }).shapeId;
+        if (errShapeId && errShapeId !== pendingCommitRef.current.shapeId) {
+          return;
+        }
+
         clearTimeout(pendingCommitRef.current.timeoutId);
         const errMsg = payload.message || payload.code || 'Failed to save area';
         pendingCommitRef.current.reject(new Error(errMsg));
@@ -300,6 +312,7 @@ export function useDrawing(options?: UseDrawingOptions) {
       }
       if (pendingCommitRef.current) {
         clearTimeout(pendingCommitRef.current.timeoutId);
+        pendingCommitRef.current.reject(new Error('Component unmounted'));
         pendingCommitRef.current = null;
       }
     };

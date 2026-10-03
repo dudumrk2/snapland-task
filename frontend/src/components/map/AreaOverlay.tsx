@@ -41,6 +41,11 @@ export const AreaOverlay: React.FC<AreaOverlayProps> = ({ map, isDrawing = false
         pane.classList.remove('snapland-polygons-drawing');
       }
     }
+    return () => {
+      if (pane) {
+        pane.classList.remove('snapland-polygons-drawing');
+      }
+    };
   }, [map, isDrawing]);
 
   // Render polygons in polygonsPane

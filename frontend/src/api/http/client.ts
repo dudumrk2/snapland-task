@@ -71,7 +71,9 @@ export const apiClient = axios.create({
 let refreshPromise: Promise<string | null> | null = null;
 let refreshHandler: (() => Promise<string | null>) | null = null;
 
-export function registerRefreshHandler(handler: () => Promise<string | null>): void {
+export function registerRefreshHandler(
+  handler: (() => Promise<string | null>) | null
+): void {
   refreshHandler = handler;
 }
 

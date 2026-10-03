@@ -180,10 +180,31 @@ describe('RealWebSocketService', () => {
       expect(wsService.connectionState).toBe('connected');
     }
 
-    // 4th 4401 should trigger handleConnectionFailure -> reconnecting with exponential backoff
+    // 4th 4401 should trigger handleConnectionFailure (failure 1) -> reconnecting
     const socket4 = (wsService as unknown as { socket: MockWebSocket }).socket;
     socket4.close(4401, 'Token expired');
     await vi.advanceTimersByTimeAsync(10);
     expect(wsService.connectionState).toBe('reconnecting');
+
+    // Simulate continuing failures without messages (failures 2, 3, 4, 5)
+    // to verify consecutiveFailures escalates all the way to 'polling'
+    for (let failCount = 2; failCount <= 5; failCount++) {
+      // Advance past backoff timer and connect delay to trigger reconnect
+      await vi.advanceTimersByTimeAsync(35000);
+      if (failCount < 5) {
+        expect(wsService.connectionState).toBe('connected');
+        const s = (wsService as unknown as { socket: MockWebSocket }).socket;
+        s.close(4401, 'Token expired');
+        await vi.advanceTimersByTimeAsync(10);
+        expect(wsService.connectionState).toBe('reconnecting');
+      } else {
+        expect(wsService.connectionState).toBe('connected');
+        const s = (wsService as unknown as { socket: MockWebSocket }).socket;
+        s.close(4401, 'Token expired');
+        await vi.advanceTimersByTimeAsync(10);
+        // At 5th consecutive failure, state must transition to 'polling'
+        expect(wsService.connectionState).toBe('polling');
+      }
+    }
   });
 });
