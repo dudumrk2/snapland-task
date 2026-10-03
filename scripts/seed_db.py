@@ -15,7 +15,11 @@ import random
 import sys
 import time
 import uuid
+import logging
 from pathlib import Path
+
+# Silence noisy dotenv warnings during CLI execution
+logging.getLogger("dotenv.main").setLevel(logging.ERROR)
 
 # Add backend and backend/src to path
 backend_path = Path(__file__).resolve().parent.parent / "backend"
@@ -130,11 +134,11 @@ async def seed_polygons(target_count: int, batch_size: int = 2000, clean: bool =
                 region = random.choices(region_list, weights=region_weights, k=1)[0]
                 c_lat = region[0] + random.gauss(0, 0.05)
                 c_lng = region[1] + random.gauss(0, 0.05)
-                # Keep strictly inside Israel bounds
-                c_lat = max(29.55, min(33.25, c_lat))
-                c_lng = max(34.30, min(35.80, c_lng))
-
+                # Keep strictly inside Israel bounding box [min_lng=34.2, min_lat=29.5, max_lng=35.8, max_lat=33.3]
                 radius = random.uniform(0.001, 0.008)  # ~100m to 800m
+                c_lat = max(29.5 + radius, min(33.3 - radius, c_lat))
+                c_lng = max(34.2 + radius, min(35.8 - radius, c_lng))
+
                 num_verts = random.randint(4, 10)
                 wkt, area_km2 = generate_polygon(c_lat, c_lng, radius, num_verts)
 

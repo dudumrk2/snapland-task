@@ -1,6 +1,6 @@
 name: CI
 
-on:
+"on":
   pull_request:
     branches: [ main, "feat/**" ]
   push:
@@ -101,15 +101,15 @@ jobs:
           cd frontend
           npm ci || npm install
 
-      - name: TypeScript Check (tsc --noEmit)
+      - name: TypeScript Check (npm run type-check)
         run: |
           cd frontend
-          npx tsc --noEmit
+          npm run type-check
 
-      - name: Vitest Coverage (>= 80%)
+      - name: Vitest Coverage >= 80% (npm run test:coverage)
         run: |
           cd frontend
-          npx vitest run --coverage
+          npm run test:coverage
 
   types:
     name: Types Drift Check
