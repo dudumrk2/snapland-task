@@ -14,11 +14,13 @@ from snapland.core.domain.ws_messages import (
     CursorMoveServerPayload,
     ErrorMessage,
     ErrorPayload,
+    PongMessage,
     RemoteDrawMessage,
     RemoteDrawPayload,
     ServerMessage,
 )
 from snapland.core.interfaces.realtime import Envelope
+from snapland.middleware.metrics import ws_messages_dropped_total, ws_messages_total
 
 logger = structlog.get_logger(__name__)
 
@@ -54,9 +56,26 @@ async def dispatch_message(conn: Connection, raw_data: str, app_state: Any) -> N
         await conn.enqueue(ErrorMessage(payload=ErrorPayload(code="VALIDATION_ERROR", message="Invalid JSON")))
         return
 
-    conn.last_received_time = time.monotonic()
+    # Every valid client frame (including PING/PONG keepalives) proves liveness:
+    # update receive/pong timestamps and clear any outstanding ping timer.
+    now = time.monotonic()
+    conn.last_received_time = now
+    conn.last_pong_time = now
+    conn.last_ping_time = None
+
     if msg_type in ("PING", "PONG"):
+        if msg_type == "PING":
+            await conn.enqueue(PongMessage())
         return
+
+    # Track inbound message metrics and structured log (type only, no coordinates or sensitive payloads)
+    type_str = str(msg_type or "unknown")
+    try:
+        ws_messages_total.labels(type=type_str, direction="inbound").inc()
+    except Exception:
+        pass
+
+    logger.info("WebSocket message received", type=type_str, conn_id=conn.conn_id, user_id=str(conn.user_id))
 
     rate_limiter = getattr(app_state, "rate_limiter", None)
     ephemeral_bus = getattr(app_state, "ephemeral_bus", None)
@@ -68,6 +87,10 @@ async def dispatch_message(conn: Connection, raw_data: str, app_state: Any) -> N
             try:
                 res = await rate_limiter.check_limit(str(conn.user_id), "draw_action", 50, 60)
                 if not res.allowed:
+                    try:
+                        ws_messages_dropped_total.labels(reason="rate_limited").inc()
+                    except Exception:
+                        pass
                     await conn.enqueue(
                         ErrorMessage(payload=ErrorPayload(code="RATE_LIMITED", retryAfterMs=res.retry_after_ms))
                     )
@@ -79,6 +102,10 @@ async def dispatch_message(conn: Connection, raw_data: str, app_state: Any) -> N
             try:
                 res = await rate_limiter.check_limit(str(conn.user_id), "draw_stream", 900, 60)
                 if not res.allowed:
+                    try:
+                        ws_messages_dropped_total.labels(reason="rate_limited").inc()
+                    except Exception:
+                        pass
                     now = time.monotonic()
                     if now - conn.last_draw_stream_rate_limit_error >= 10.0:
                         conn.last_draw_stream_rate_limit_error = now
@@ -103,6 +130,10 @@ async def dispatch_message(conn: Connection, raw_data: str, app_state: Any) -> N
         now = time.monotonic()
         # In-process per-connection throttle: 1 per 100 ms (10 Hz)
         if now - conn.last_cursor_time < 0.1:
+            try:
+                ws_messages_dropped_total.labels(reason="throttled").inc()
+            except Exception:
+                pass
             return
         conn.last_cursor_time = now
 
@@ -118,11 +149,24 @@ async def dispatch_message(conn: Connection, raw_data: str, app_state: Any) -> N
         except (ValueError, TypeError):
             return
 
+        sent_at_raw = payload.get("sentAt") if "sentAt" in payload else (payload.get("sent_at") or payload.get("clientTime"))
+        sent_at_val: Optional[float] = None
+        if sent_at_raw is not None:
+            try:
+                v = float(sent_at_raw)
+                s = v / 1000.0 if v > 1e11 else v
+                now_epoch = time.time()
+                if (now_epoch - 60.0) <= s <= (now_epoch + 5.0):
+                    sent_at_val = s
+            except (ValueError, TypeError):
+                pass
+
         out_msg = CursorMoveServerMessage(
             payload=CursorMoveServerPayload(
                 userId=conn.user_id,
                 lat=lat_f,
-                lng=lng_f
+                lng=lng_f,
+                sentAt=sent_at_val,
             )
         )
         if manager:
@@ -153,7 +197,7 @@ async def dispatch_message(conn: Connection, raw_data: str, app_state: Any) -> N
                 userId=conn.user_id,
                 shapeId=shape_id,
                 phase="start",
-                append=append_coords
+                append=append_coords,
             )
         )
         if manager:
@@ -203,7 +247,7 @@ async def dispatch_message(conn: Connection, raw_data: str, app_state: Any) -> N
                 phase="update",
                 seq=seq_val,
                 fromIndex=from_index_val,
-                append=append_coords
+                append=append_coords,
             )
         )
         if manager:
@@ -245,6 +289,7 @@ async def dispatch_message(conn: Connection, raw_data: str, app_state: Any) -> N
                 await app_state.area_service.create_area(req, conn.user_id)
             elif hasattr(app_state, "session_factory") and app_state.session_factory:
                 from snapland.api.deps import build_area_service
+
                 async with app_state.session_factory() as session:
                     svc = build_area_service(session, app_state)
                     await svc.create_area(req, conn.user_id)
@@ -274,7 +319,7 @@ async def dispatch_message(conn: Connection, raw_data: str, app_state: Any) -> N
                 shapeId=shape_id,
                 phase="commit",
                 name=name,
-                points=points
+                points=points,
             )
         )
         if manager:
@@ -291,7 +336,7 @@ async def dispatch_message(conn: Connection, raw_data: str, app_state: Any) -> N
             payload=RemoteDrawPayload(
                 userId=conn.user_id,
                 shapeId=shape_id,
-                phase="cancel"
+                phase="cancel",
             )
         )
         if manager:

@@ -1,7 +1,10 @@
+import asyncio
 import json
+import time
 import uuid
 from collections.abc import Sequence
 from datetime import datetime, timezone
+from typing import Any
 from uuid import UUID
 
 from geoalchemy2.functions import (
@@ -18,10 +21,52 @@ from snapland.core.interfaces.repositories import AreaPage, IAreaRepository
 from snapland.infrastructure.db.models import AreaModel, AreaVersionModel, AuditLogModel
 from snapland.infrastructure.db.repositories.base import BaseRepository
 
+DB_TIMEOUT_SECONDS: float = 28.0
+
 
 class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(session, AreaModel)
+
+    async def _execute_with_timeout(self, stmt: Any, params: Any = None) -> Any:
+        try:
+            if params is not None:
+                return await asyncio.wait_for(self.session.execute(stmt, params), timeout=DB_TIMEOUT_SECONDS)
+            return await asyncio.wait_for(self.session.execute(stmt), timeout=DB_TIMEOUT_SECONDS)
+        except (asyncio.TimeoutError, TimeoutError) as e:
+            try:
+                await self.session.rollback()
+            except Exception:
+                pass
+            raise TimeoutError(f"Database query timed out after {DB_TIMEOUT_SECONDS}s") from e
+        except Exception as e:
+            try:
+                await self.session.rollback()
+            except Exception:
+                pass
+            exc_str = str(e).lower()
+            if "statement timeout" in exc_str or "canceling statement" in exc_str or "57014" in exc_str:
+                raise TimeoutError("Database query canceled by statement timeout") from e
+            raise
+
+    async def _commit_with_timeout(self) -> None:
+        try:
+            await asyncio.wait_for(self.session.commit(), timeout=DB_TIMEOUT_SECONDS)
+        except (asyncio.TimeoutError, TimeoutError) as e:
+            try:
+                await self.session.rollback()
+            except Exception:
+                pass
+            raise TimeoutError(f"Database commit timed out after {DB_TIMEOUT_SECONDS}s") from e
+        except Exception as e:
+            try:
+                await self.session.rollback()
+            except Exception:
+                pass
+            exc_str = str(e).lower()
+            if "statement timeout" in exc_str or "canceling statement" in exc_str or "57014" in exc_str:
+                raise TimeoutError("Database commit canceled by statement timeout") from e
+            raise
 
     def _coords_to_polygon_text(self, coords: Sequence[Coordinate]) -> str:
         if not coords:
@@ -43,13 +88,13 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
             return [Coordinate(lat=lat, lng=lng) for lng, lat in ring]
         return []
 
-    async def get_by_id(self, area_id: UUID) -> Area | None: # type: ignore[override]
+    async def get_by_id(self, area_id: UUID) -> Area | None:  # type: ignore[override]
         stmt = (
             select(AreaModel, func.ST_AsGeoJSON(AreaModel.geom).label("geojson"))
             .where(AreaModel.id == area_id)
             .where(AreaModel.deleted_at.is_(None))
         )
-        result = await self.session.execute(stmt)
+        result = await self._execute_with_timeout(stmt)
         row = result.first()
         if not row:
             return None
@@ -67,8 +112,14 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
         )
 
     async def get_within_bounds(
-        self, min_lng: float, min_lat: float, max_lng: float, max_lat: float,
-        *, zoom: int | None = None, limit: int = 500,
+        self,
+        min_lng: float,
+        min_lat: float,
+        max_lng: float,
+        max_lat: float,
+        *,
+        zoom: int | None = None,
+        limit: int = 500,
     ) -> AreaPage:
         # Simplification tolerance based on zoom.
         tolerance = 0.0
@@ -78,7 +129,7 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
 
         geom_expr = AreaModel.geom
         if tolerance > 0:
-            geom_expr = ST_SimplifyPreserveTopology(AreaModel.geom, tolerance) # type: ignore
+            geom_expr = ST_SimplifyPreserveTopology(AreaModel.geom, tolerance)  # type: ignore
 
         stmt = (
             select(AreaModel, func.ST_AsGeoJSON(geom_expr).label("geojson"))
@@ -86,8 +137,17 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
             .where(ST_Intersects(AreaModel.geom, ST_MakeEnvelope(min_lng, min_lat, max_lng, max_lat, 4326)))
             .limit(limit + 1)
         )
-        result = await self.session.execute(stmt)
-        rows = result.all()
+        start_time = time.monotonic()
+        try:
+            result = await self._execute_with_timeout(stmt)
+            rows = result.all()
+        finally:
+            duration = time.monotonic() - start_time
+            try:
+                from snapland.middleware.metrics import viewport_query_duration_seconds
+                viewport_query_duration_seconds.observe(duration)
+            except Exception:
+                pass
 
         truncated = len(rows) > limit
         if truncated:
@@ -95,17 +155,19 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
 
         areas = []
         for model, geojson in rows:
-            areas.append(Area(
-                id=model.id,
-                name=model.name,
-                coordinates=list(self._geojson_to_coords(geojson)),
-                area_km2=model.area_km2,
-                version=model.version,
-                created_by=model.created_by,
-                last_edited_by=model.last_edited_by,
-                created_at=model.created_at,
-                updated_at=model.updated_at,
-            ))
+            areas.append(
+                Area(
+                    id=model.id,
+                    name=model.name,
+                    coordinates=list(self._geojson_to_coords(geojson)),
+                    area_km2=model.area_km2,
+                    version=model.version,
+                    created_by=model.created_by,
+                    last_edited_by=model.last_edited_by,
+                    created_at=model.created_at,
+                    updated_at=model.updated_at,
+                )
+            )
         return AreaPage(areas=areas, truncated=truncated)
 
     async def get_version_history(self, area_id: UUID) -> Sequence[AreaVersion]:
@@ -114,24 +176,26 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
             .where(AreaVersionModel.area_id == area_id)
             .order_by(AreaVersionModel.version_number.desc())
         )
-        result = await self.session.execute(stmt)
+        result = await self._execute_with_timeout(stmt)
         models = result.scalars().all()
         versions = []
         for m in models:
-            versions.append(AreaVersion(
-                version_number=m.version_number,
-                edited_by=m.edited_by,
-                change_type=m.change_type,
-                area_km2=m.area_km2,
-                created_at=m.created_at,
-                diff=m.diff
-            ))
+            versions.append(
+                AreaVersion(
+                    version_number=m.version_number,
+                    edited_by=m.edited_by,
+                    change_type=m.change_type,
+                    area_km2=m.area_km2,
+                    created_at=m.created_at,
+                    diff=m.diff,
+                )
+            )
         return versions
 
     async def create(self, area: Area) -> Area:
         polygon_wkt = self._coords_to_polygon_text(area.coordinates)
         geom_val = func.ST_GeomFromText(polygon_wkt, 4326)
-        
+
         stmt = (
             insert(AreaModel)
             .values(
@@ -147,9 +211,9 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
             )
             .returning(AreaModel.area_km2)
         )
-        result = await self.session.execute(stmt)
+        result = await self._execute_with_timeout(stmt)
         computed_area_km2 = result.scalar()
-        
+
         version_stmt = insert(AreaVersionModel).values(
             id=uuid.uuid4(),
             area_id=area.id,
@@ -158,9 +222,9 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
             version_number=area.version,
             change_type="create",
             created_at=datetime.fromisoformat(area.created_at) if isinstance(area.created_at, str) else area.created_at,
-            diff={}
+            diff={},
         )
-        await self.session.execute(version_stmt)
+        await self._execute_with_timeout(version_stmt)
         audit_stmt = insert(AuditLogModel).values(
             id=uuid.uuid4(),
             user_id=area.created_by,
@@ -168,12 +232,12 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
             resource_type="area",
             resource_id=area.id,
             details={},
-            created_at=datetime.fromisoformat(area.created_at) if isinstance(area.created_at, str) else area.created_at
+            created_at=datetime.fromisoformat(area.created_at) if isinstance(area.created_at, str) else area.created_at,
         )
-        await self.session.execute(audit_stmt)
-        
-        await self.session.commit()
-        
+        await self._execute_with_timeout(audit_stmt)
+
+        await self._commit_with_timeout()
+
         return Area(
             id=area.id,
             name=area.name,
@@ -183,12 +247,12 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
             created_by=area.created_by,
             last_edited_by=area.last_edited_by,
             created_at=area.created_at,
-            updated_at=area.updated_at
+            updated_at=area.updated_at,
         )
 
     async def update(self, area: Area, expected_version: int) -> Area | None:
         polygon_wkt = self._coords_to_polygon_text(area.coordinates)
-        
+
         query = text("""
             WITH updated AS (
                 UPDATE areas
@@ -207,23 +271,23 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
             FROM areas
             WHERE id = :id AND NOT EXISTS (SELECT 1 FROM updated)
         """)
-        
-        result = await self.session.execute(
-            query, 
+
+        result = await self._execute_with_timeout(
+            query,
             {
                 "name": area.name,
                 "geom": polygon_wkt,
                 "last_edited_by": area.last_edited_by,
                 "updated_at": area.updated_at,
                 "id": area.id,
-                "expected_version": expected_version
-            }
+                "expected_version": expected_version,
+            },
         )
         row = result.first()
-        
+
         if not row:
-            return None # Deleted or doesn't exist
-            
+            return None  # Deleted or doesn't exist
+
         ret_area = Area(
             id=row.id,
             name=row.name,
@@ -233,13 +297,18 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
             created_by=row.created_by,
             last_edited_by=row.last_edited_by,
             created_at=row.created_at,
-            updated_at=row.updated_at
+            updated_at=row.updated_at,
         )
-        
+
         if not row.is_updated:
+            try:
+                from snapland.middleware.metrics import occ_conflicts_total
+                occ_conflicts_total.inc()
+            except Exception:
+                pass
             from snapland.core.domain.exceptions import ConflictError
             raise ConflictError(ret_area)
-            
+
         # Write area version
         version_stmt = insert(AreaVersionModel).values(
             id=uuid.uuid4(),
@@ -249,9 +318,9 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
             version_number=ret_area.version,
             change_type="update",
             created_at=datetime.fromisoformat(area.updated_at) if isinstance(area.updated_at, str) else area.updated_at,
-            diff={}
+            diff={},
         )
-        await self.session.execute(version_stmt)
+        await self._execute_with_timeout(version_stmt)
         audit_stmt = insert(AuditLogModel).values(
             id=uuid.uuid4(),
             user_id=area.last_edited_by,
@@ -259,13 +328,12 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
             resource_type="area",
             resource_id=area.id,
             details={},
-            created_at=datetime.fromisoformat(area.updated_at) if isinstance(area.updated_at, str) else area.updated_at
+            created_at=datetime.fromisoformat(area.updated_at) if isinstance(area.updated_at, str) else area.updated_at,
         )
-        await self.session.execute(audit_stmt)
-        await self.session.commit()
-        
-        return ret_area
+        await self._execute_with_timeout(audit_stmt)
+        await self._commit_with_timeout()
 
+        return ret_area
 
     async def soft_delete(self, area_id: UUID, deleted_by: UUID) -> bool:
         now = datetime.now(timezone.utc)
@@ -276,17 +344,17 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
             .values(
                 deleted_at=now,
                 last_edited_by=deleted_by,
-                updated_at=now
+                updated_at=now,
             )
             .returning(AreaModel.version, AreaModel.area_km2, AreaModel.geom)
         )
-        result = await self.session.execute(stmt)
+        result = await self._execute_with_timeout(stmt)
         row = result.first()
         if not row:
             return False
-            
+
         version, area_km2, geom = row
-        
+
         version_stmt = insert(AreaVersionModel).values(
             id=uuid.uuid4(),
             area_id=area_id,
@@ -295,9 +363,9 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
             version_number=version + 1,
             change_type="delete",
             created_at=now,
-            diff={}
+            diff={},
         )
-        await self.session.execute(version_stmt)
+        await self._execute_with_timeout(version_stmt)
         audit_stmt = insert(AuditLogModel).values(
             id=uuid.uuid4(),
             user_id=deleted_by,
@@ -305,9 +373,9 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
             resource_type="area",
             resource_id=area_id,
             details={},
-            created_at=now
+            created_at=now,
         )
-        await self.session.execute(audit_stmt)
-        
-        await self.session.commit()
+        await self._execute_with_timeout(audit_stmt)
+
+        await self._commit_with_timeout()
         return True

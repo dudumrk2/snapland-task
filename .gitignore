@@ -53,3 +53,8 @@ start_backend.py
 backend/start_backend.py
 frontend/test-results/
 frontend/playwright-report/
+*.pem
+.dev_jwt_*
+coverage/
+frontend/coverage/
+

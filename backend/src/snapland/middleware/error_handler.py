@@ -1,3 +1,4 @@
+import asyncio
 import dataclasses
 import logging
 import typing
@@ -6,6 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from sqlalchemy.exc import DBAPIError
 
 from snapland.core.domain.exceptions import (
     AuthError,
@@ -111,6 +113,48 @@ def setup_error_handlers(app: FastAPI) -> None:
                 "details": {"retryAfterMs": exc.retry_after_ms}
             },
             headers={"Retry-After": str(exc.retry_after_ms // 1000)}
+        )
+
+    @app.exception_handler(TimeoutError)
+    @app.exception_handler(asyncio.TimeoutError)
+    async def timeout_error_handler(request: Request, exc: Exception) -> typing.Any:
+        log.warning("Request timed out: %s", exc)
+        return JSONResponse(
+            status_code=504,
+            content={
+                "error": {
+                    "code": "GATEWAY_TIMEOUT",
+                    "message": str(exc) or "Request timed out",
+                },
+                "message": str(exc) or "Request timed out",
+                "details": {},
+            },
+        )
+
+    @app.exception_handler(DBAPIError)
+    async def dbapi_error_handler(request: Request, exc: DBAPIError) -> typing.Any:
+        exc_str = str(exc).lower()
+        if "statement timeout" in exc_str or "canceling statement" in exc_str or "57014" in exc_str:
+            log.warning("Database statement timeout: %s", exc)
+            return JSONResponse(
+                status_code=504,
+                content={
+                    "error": {
+                        "code": "GATEWAY_TIMEOUT",
+                        "message": "Database query timed out",
+                    },
+                    "message": "Database query timed out",
+                    "details": {},
+                },
+            )
+        log.exception("Unhandled database error: %s", exc)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "INTERNAL_ERROR",
+                "message": "Internal database error",
+                "details": {},
+            },
         )
 
     @app.exception_handler(Exception)

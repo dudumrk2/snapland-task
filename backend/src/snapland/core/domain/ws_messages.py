@@ -59,10 +59,17 @@ class DrawCancelMessage(BaseModel):
 class CursorMoveClientPayload(BaseModel):
     lat: float
     lng: float
+    sentAt: float | None = None
 
 class CursorMoveClientMessage(BaseModel):
     type: Literal["CURSOR_MOVE"] = "CURSOR_MOVE"
     payload: CursorMoveClientPayload
+
+class PingMessage(BaseModel):
+    type: Literal["PING"] = "PING"
+
+class PongMessage(BaseModel):
+    type: Literal["PONG"] = "PONG"
 
 ClientMessage = (
     DrawStartMessage
@@ -70,6 +77,8 @@ ClientMessage = (
     | DrawCommitMessage
     | DrawCancelMessage
     | CursorMoveClientMessage
+    | PingMessage
+    | PongMessage
 )
 
 # ---------------------------------------------------------
@@ -94,6 +103,7 @@ class CursorMoveServerPayload(BaseModel):
     userId: UUID
     lat: float
     lng: float
+    sentAt: float | None = None
 
 class CursorMoveServerMessage(BaseModel):
     type: Literal["CURSOR_MOVE"] = "CURSOR_MOVE"
@@ -172,4 +182,6 @@ ServerMessage = (
     | UserLeftMessage
     | ResyncRequiredMessage
     | ErrorMessage
+    | PingMessage
+    | PongMessage
 )

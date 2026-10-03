@@ -9,8 +9,10 @@ services:
       POSTGRES_DB: snapland
     ports:
       - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U snapland"]
+      test: ["CMD-SHELL", "pg_isready -U snapland -d snapland"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -19,6 +21,8 @@ services:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -26,10 +30,10 @@ services:
       retries: 5
 
   migrate:
-    build: 
+    build:
       context: ../backend
       dockerfile: Dockerfile
-    command: alembic upgrade head
+    command: sh -c "for i in \$(seq 1 30); do alembic upgrade head && exit 0; echo 'Waiting for database to be ready...'; sleep 2; done; exit 1"
     depends_on:
       postgres:
         condition: service_healthy
@@ -37,7 +41,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://snapland:password@postgres:5432/snapland
 
   backend:
-    build: 
+    build:
       context: ../backend
       dockerfile: Dockerfile
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --ws-ping-interval 30 --ws-ping-timeout 10
@@ -48,22 +52,34 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')\""]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    volumes:
+      - jwt_keys:/tmp/keys
     environment:
-      INSTANCE_ID: $HOSTNAME
       DATABASE_URL: postgresql+asyncpg://snapland:password@postgres:5432/snapland
       REDIS_URL: redis://redis:6379/0
-      JWT_PRIVATE_KEY: "dummy"
-      JWT_PUBLIC_KEY: "dummy"
+      ENVIRONMENT: development
+      ACCESS_TOKEN_EXPIRE_MINUTES: 15
+      REFRESH_TOKEN_EXPIRE_DAYS: 7
+      WS_ALLOWED_ORIGINS: "*"
+      MAX_AREA_KM2: "1000.0"
+      MAX_POLYGON_VERTICES: "1000"
+      JWT_KEYS_DIR: /tmp/keys
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:-}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:-}
 
   frontend:
     build:
-      context: ../frontend
-      dockerfile: Dockerfile
-    command: npm run dev -- --host 0.0.0.0
-    ports:
-      - "5173:5173"
+      context: ..
+      dockerfile: frontend/Dockerfile
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
   nginx:
     image: nginx:alpine
@@ -72,23 +88,37 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - frontend
-      - backend
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.53.0
     ports:
       - "9090:9090"
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:11.2.0
     ports:
       - "3000:3000"
     environment:
+      - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
     depends_on:
       - prometheus
+
+volumes:
+  postgres_data:
+  redis_data:
+  jwt_keys:

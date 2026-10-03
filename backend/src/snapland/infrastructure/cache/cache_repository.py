@@ -9,6 +9,11 @@ class CacheRepository(ICacheRepository):
 
     async def get(self, key: str) -> str | None:
         value = await self.redis.get(key)
+        try:
+            from snapland.middleware.metrics import cache_requests_total
+            cache_requests_total.labels(layer="L2", result="hit" if value is not None else "miss").inc()
+        except Exception:
+            pass
         if value is None:
             return None
         return value.decode("utf-8") if isinstance(value, bytes) else str(value)
@@ -21,6 +26,11 @@ class CacheRepository(ICacheRepository):
 
     async def getdel(self, key: str) -> str | None:
         value = await self.redis.getdel(key)
+        try:
+            from snapland.middleware.metrics import cache_requests_total
+            cache_requests_total.labels(layer="L2", result="hit" if value is not None else "miss").inc()
+        except Exception:
+            pass
         if value is None:
             return None
         return value.decode("utf-8") if isinstance(value, bytes) else str(value)

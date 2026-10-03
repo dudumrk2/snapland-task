@@ -1,6 +1,7 @@
 import time
 import uuid
 
+import structlog
 from redis.asyncio import Redis
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -8,6 +9,8 @@ from starlette.responses import JSONResponse
 
 from snapland.core.interfaces.services import IRateLimiter, RateLimitResult
 from snapland.middleware.error_handler import RateLimitExceeded
+
+logger = structlog.get_logger(__name__)
 
 LUA_SCRIPT = """
 local key = KEYS[1]
@@ -34,6 +37,7 @@ else
 end
 """
 
+
 class RedisRateLimiter(IRateLimiter):
     def __init__(self, redis: Redis) -> None:
         self.redis = redis
@@ -44,22 +48,30 @@ class RedisRateLimiter(IRateLimiter):
         current_time_ms = int(time.time() * 1000)
         window_ms = window_seconds * 1000
         member_id = f"{current_time_ms}-{uuid.uuid4()}"
-        
+
         result = await self._script(
             keys=[key],
-            args=[current_time_ms, window_ms, limit, member_id]
+            args=[current_time_ms, window_ms, limit, member_id],
         )
         allowed = bool(result[0])
         retry_after_ms = int(result[1])
-        
+
+        if not allowed:
+            try:
+                from snapland.middleware.metrics import rate_limit_hits_total
+                rate_limit_hits_total.labels(bucket=bucket).inc()
+            except Exception:
+                pass
+
         return RateLimitResult(allowed=allowed, retry_after_ms=retry_after_ms)
+
 
 async def check_rate_limit(
     limiter: IRateLimiter,
     user_id: str,
     bucket: str,
     limit: int,
-    window_seconds: int
+    window_seconds: int,
 ) -> None:
     result = await limiter.check_limit(user_id, bucket, limit, window_seconds)
     if not result.allowed:
@@ -68,19 +80,29 @@ async def check_rate_limit(
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        # Health probes and internal Prometheus metrics must never be rate limited
+        path = request.url.path
+        if path in ("/health/live", "/health/ready", "/metrics") or path.startswith("/health/"):
+            return await call_next(request)
+
         limiter = request.app.state.rate_limiter if hasattr(request.app.state, "rate_limiter") else None
         if limiter:
             forwarded = request.headers.get("X-Forwarded-For")
             ip = forwarded.split(",")[0] if forwarded else (request.client.host if request.client else "127.0.0.1")
-            res = await limiter.check_limit(ip, "http", 100, 60)
-            if not res.allowed:
-                return JSONResponse(
-                    status_code=429,
-                    content={
-                        "error": "RATE_LIMITED",
-                        "message": "Rate limit exceeded",
-                        "details": {"retryAfterMs": res.retry_after_ms}
-                    },
-                    headers={"Retry-After": str(max(1, res.retry_after_ms // 1000))}
-                )
+            try:
+                res = await limiter.check_limit(ip, "http", 100, 60)
+                if not res.allowed:
+                    return JSONResponse(
+                        status_code=429,
+                        content={
+                            "error": "RATE_LIMITED",
+                            "message": "Rate limit exceeded",
+                            "details": {"retryAfterMs": res.retry_after_ms},
+                        },
+                        headers={"Retry-After": str(max(1, res.retry_after_ms // 1000))},
+                    )
+            except Exception as e:
+                # Fail open to preserve API availability if Redis has a transient issue
+                logger.warning("Rate limiter check failed, failing open", error=str(e), path=path)
+
         return await call_next(request)
