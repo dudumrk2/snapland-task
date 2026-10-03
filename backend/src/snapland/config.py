@@ -95,8 +95,31 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     INSTANCE_ID: str = _generate_instance_id()
     WS_ALLOWED_ORIGINS: str = "*"
+    CORS_ORIGINS: list[str] | str = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:80",
+        "http://127.0.0.1:80",
+        "http://localhost",
+        "http://127.0.0.1",
+    ]
     MAX_AREA_KM2: float = 1000.0
     MAX_POLYGON_VERTICES: int = 1000
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        if isinstance(self.CORS_ORIGINS, str):
+            origins = [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+        else:
+            origins = list(self.CORS_ORIGINS)
+        if not origins:
+            return [
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+                "http://localhost:80",
+                "http://localhost",
+            ]
+        return origins
 
     @field_validator("DATABASE_URL", mode="after")
     @classmethod

@@ -5,8 +5,32 @@ import pytest
 from snapland.infrastructure.jobs.retention import (
     RETENTION_LOCK_KEY,
     RETENTION_LOCK_TTL,
+    run_retention_cleanup,
     run_retention_job,
 )
+
+
+@pytest.mark.asyncio
+async def test_retention_cleanup_alias():
+    redis_mock = MagicMock()
+    redis_mock.set = AsyncMock(return_value=True)
+
+    session_mock = MagicMock()
+    session_mock.commit = AsyncMock()
+    exec_result_mock = MagicMock()
+    exec_result_mock.rowcount = 2
+    session_mock.execute = AsyncMock(return_value=exec_result_mock)
+
+    session_factory_mock = MagicMock()
+    session_factory_mock.return_value.__aenter__ = AsyncMock(return_value=session_mock)
+    session_factory_mock.return_value.__aexit__ = AsyncMock()
+
+    summary = await run_retention_cleanup(session_factory_mock, redis_mock)
+    assert summary["purged_soft_deleted_areas"] == 2
+    assert summary["pruned_area_versions"] == 2
+    assert summary["deleted_audit_logs"] == 2
+    assert summary["deleted_sessions"] == 2
+    redis_mock.set.assert_called_once_with(RETENTION_LOCK_KEY, "1", nx=True, ex=RETENTION_LOCK_TTL)
 
 
 @pytest.mark.asyncio
