@@ -4,6 +4,7 @@ import { RealWebSocketService } from '../../../src/services/websocket/WebSocketS
 class MockWebSocket {
   static OPEN = 1;
   static CLOSED = 3;
+  static instances: MockWebSocket[] = [];
   readyState = MockWebSocket.OPEN;
   url: string;
   onopen: (() => void) | null = null;
@@ -14,8 +15,9 @@ class MockWebSocket {
 
   constructor(url: string) {
     this.url = url;
+    MockWebSocket.instances.push(this);
     setTimeout(() => {
-      if (this.onopen) this.onopen();
+      if (this.onopen && this.readyState !== MockWebSocket.CLOSED) this.onopen();
     }, 0);
   }
 
@@ -35,6 +37,7 @@ describe('RealWebSocketService', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    MockWebSocket.instances = [];
     originalWebSocket = globalThis.WebSocket;
     (globalThis as unknown as { WebSocket: unknown }).WebSocket = MockWebSocket;
     wsService = new RealWebSocketService();
@@ -212,29 +215,41 @@ describe('RealWebSocketService', () => {
   it('handles React 18 StrictMode quick remount (connect -> disconnect -> connect) cleanly without orphan reconnection', async () => {
     const ticketProvider = vi.fn().mockResolvedValue('strictmode-ticket');
 
-    // First mount
+    // First mount connects
     wsService.connect(ticketProvider);
-    // Unmount before ticket resolves or socket completes
-    wsService.disconnect();
-    // Second mount
-    wsService.connect(ticketProvider);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(MockWebSocket.instances).toHaveLength(1);
 
+    // Unmount disconnects
+    wsService.disconnect();
+    expect(MockWebSocket.instances[0].readyState).toBe(MockWebSocket.CLOSED);
+
+    // Second mount connects
+    wsService.connect(ticketProvider);
     await vi.advanceTimersByTimeAsync(50);
     expect(wsService.connectionState).toBe('connected');
 
     // Advancing time should not fire any stray reconnect timer or disconnect the active socket
     await vi.advanceTimersByTimeAsync(5000);
     expect(wsService.connectionState).toBe('connected');
+
+    // Verify only 2 instances were created, first is closed, second is currently open
+    expect(MockWebSocket.instances).toHaveLength(2);
+    expect(MockWebSocket.instances[0].readyState).toBe(MockWebSocket.CLOSED);
+    expect(MockWebSocket.instances[1].readyState).toBe(MockWebSocket.OPEN);
+    expect((wsService as unknown as { socket: MockWebSocket }).socket).toBe(MockWebSocket.instances[1]);
   });
 
   it('does not reset failure counter on early message arrival until stability window passes', async () => {
     const ticketProvider = vi.fn().mockResolvedValue('stability-ticket');
 
-    // Induce 2 failures first
+    // Induce failures first
     const failProvider = vi.fn().mockRejectedValue(new Error('fail'));
     wsService.connect(failProvider);
     await vi.advanceTimersByTimeAsync(1500); // failure 1
     await vi.advanceTimersByTimeAsync(2500); // failure 2
+    const initialFailures = (wsService as unknown as { consecutiveFailures: number }).consecutiveFailures;
+    expect(initialFailures).toBeGreaterThanOrEqual(2);
     expect(wsService.connectionState).toBe('reconnecting');
 
     // Now connect successfully with ticketProvider
@@ -253,7 +268,28 @@ describe('RealWebSocketService', () => {
     await vi.advanceTimersByTimeAsync(10);
 
     // Because stability window was not reached, consecutiveFailures was not cleared!
-    // It should be failure 3, remaining in reconnecting (not reset to 1)
+    // It should have incremented beyond initialFailures (not reset to 1)
+    const finalFailures = (wsService as unknown as { consecutiveFailures: number }).consecutiveFailures;
+    expect(finalFailures).toBe(initialFailures + 1);
     expect(wsService.connectionState).toBe('reconnecting');
+  });
+
+  it('updates state to reconnecting immediately on 4401 close', async () => {
+    const ticketProvider = vi.fn().mockResolvedValue('ticket-4401');
+    wsService.connect(ticketProvider);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(wsService.connectionState).toBe('connected');
+
+    const stateChanges: string[] = [];
+    wsService.onStateChange((st) => stateChanges.push(st));
+
+    const socket = (wsService as unknown as { socket: MockWebSocket }).socket;
+    socket.close(4401, 'Token expired');
+
+    expect(wsService.connectionState).toBe('reconnecting');
+    expect(stateChanges).toContain('reconnecting');
+
+    await vi.advanceTimersByTimeAsync(10);
+    expect(wsService.connectionState).toBe('connected');
   });
 });

@@ -49,6 +49,7 @@ export function useDrawing(options?: UseDrawingOptions) {
     reject: (err: Error) => void;
     timeoutId: ReturnType<typeof setTimeout>;
   } | null>(null);
+  const isSavingRef = useRef<boolean>(false);
 
   // Compute live approximate area
   const previewPoints =
@@ -179,7 +180,7 @@ export function useDrawing(options?: UseDrawingOptions) {
 
   const cancelDrawing = useCallback(() => {
     // If a commit is in flight, do not cancel while server is processing it
-    if (pendingCommitRef.current) {
+    if (isSavingRef.current || pendingCommitRef.current) {
       return;
     }
 
@@ -208,13 +209,14 @@ export function useDrawing(options?: UseDrawingOptions) {
 
   const saveDrawing = useCallback(
     async (name: string) => {
-      if (pendingCommitRef.current) {
+      if (isSavingRef.current || pendingCommitRef.current) {
         throw new Error('Save already in progress');
       }
 
       const clean = removeDuplicateConsecutive(points);
       if (clean.length < 3) return;
 
+      isSavingRef.current = true;
       const currentShapeId = shapeIdRef.current || undefined;
 
       // In connected mode: emit DRAW_COMMIT over WebSocket, which creates the area
@@ -226,14 +228,21 @@ export function useDrawing(options?: UseDrawingOptions) {
           const timeoutId = setTimeout(() => {
             if (pendingCommitRef.current?.shapeId === currentShapeId) {
               pendingCommitRef.current = null;
+              isSavingRef.current = false;
               reject(new Error('Save timed out. Please try again.'));
             }
           }, COMMIT_TIMEOUT_MS);
 
           pendingCommitRef.current = {
             shapeId: currentShapeId,
-            resolve,
-            reject,
+            resolve: (area) => {
+              isSavingRef.current = false;
+              resolve(area);
+            },
+            reject: (err) => {
+              isSavingRef.current = false;
+              reject(err);
+            },
             timeoutId,
           };
 
@@ -252,6 +261,7 @@ export function useDrawing(options?: UseDrawingOptions) {
             // Socket was not OPEN; fall back to HTTP createArea
             createArea(name, clean, currentShapeId)
               .then((createdArea) => {
+                isSavingRef.current = false;
                 setIsSaveModalOpen(false);
                 isDrawingRef.current = false;
                 setIsDrawing(false);
@@ -260,18 +270,25 @@ export function useDrawing(options?: UseDrawingOptions) {
                 submittedShapeIdsRef.current.clear();
                 resolve(createdArea);
               })
-              .catch(reject);
+              .catch((err) => {
+                isSavingRef.current = false;
+                reject(err);
+              });
           }
         });
       } else {
-        const createdArea = await createArea(name, clean, currentShapeId);
-        setIsSaveModalOpen(false);
-        isDrawingRef.current = false;
-        setIsDrawing(false);
-        setPoints([]);
-        shapeIdRef.current = null;
-        submittedShapeIdsRef.current.clear();
-        return createdArea;
+        try {
+          const createdArea = await createArea(name, clean, currentShapeId);
+          setIsSaveModalOpen(false);
+          isDrawingRef.current = false;
+          setIsDrawing(false);
+          setPoints([]);
+          shapeIdRef.current = null;
+          submittedShapeIdsRef.current.clear();
+          return createdArea;
+        } finally {
+          isSavingRef.current = false;
+        }
       }
     },
     [points, createArea, wsService]

@@ -44,12 +44,17 @@ export class RealWebSocketService implements IWebSocketService {
   connect(ticketProvider: () => Promise<string>): void {
     this.ticketProvider = ticketProvider;
     this.intentionalDisconnect = false;
-    this.clearReconnectTimer();
 
-    if (this.state === 'connected' || this.state === 'connecting') {
+    const isSocketActive =
+      this.socket &&
+      (this.socket.readyState === WebSocket.OPEN ||
+        this.socket.readyState === WebSocket.CONNECTING);
+
+    if (isSocketActive && (this.state === 'connected' || this.state === 'connecting')) {
       return;
     }
 
+    this.clearReconnectTimer();
     this.initiateConnection();
   }
 
@@ -245,6 +250,7 @@ export class RealWebSocketService implements IWebSocketService {
             this.handleConnectionFailure();
             return;
           }
+          this.updateState('reconnecting');
           this.reconnectTimer = setTimeout(() => {
             this.initiateConnection();
           }, 0);

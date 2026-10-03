@@ -486,4 +486,48 @@ describe('useDrawing', () => {
 
     await expect(firstPromise!).resolves.toBeDefined();
   });
+
+  it('rejects concurrent saveDrawing calls in degraded HTTP mode', async () => {
+    mockWsService.disconnect();
+
+    let resolveHttp: ((area: unknown) => void) | undefined;
+    mockAreaApi.createArea = vi.fn().mockImplementation(() => {
+      return new Promise((res) => {
+        resolveHttp = res;
+      });
+    });
+
+    const { result } = renderHook(() => useDrawing(), { wrapper });
+
+    act(() => {
+      result.current.startDrawing();
+      result.current.addPoint({ lat: 32.0, lng: 34.8 });
+      result.current.addPoint({ lat: 32.0, lng: 34.9 });
+      result.current.addPoint({ lat: 32.1, lng: 34.85 });
+      result.current.finishDrawing();
+    });
+
+    let firstPromise: Promise<unknown>;
+    act(() => {
+      firstPromise = result.current.saveDrawing('HTTP Save 1');
+    });
+
+    // Concurrent save attempt while HTTP createArea is in-flight
+    await expect(result.current.saveDrawing('HTTP Save 2')).rejects.toThrow('Save already in progress');
+
+    await act(async () => {
+      resolveHttp?.({
+        id: 'http-area-1',
+        name: 'HTTP Save 1',
+        coordinates: [{ lat: 32.0, lng: 34.8 }],
+        areaKm2: 1.0,
+        version: 1,
+        createdBy: 'user-1',
+        lastEditedBy: 'user-1',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      await firstPromise;
+    });
+  });
 });

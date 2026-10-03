@@ -42,7 +42,22 @@ describe('collaborationStore', () => {
     expect(state.remoteShapes['shape-u2']).toBeUndefined();
   });
 
-  it('clears remote cursors and shapes when connectionState switches to disconnected or polling', () => {
+  it('clears remote cursors and shapes when connectionState switches to disconnected, polling, or reconnecting', () => {
+    useCollaborationStore.setState({
+      remoteCursors: {
+        u1: { userId: 'u1', lat: 32.1, lng: 34.8, updatedAt: Date.now() },
+      },
+      remoteShapes: {
+        'shape-u1': { shapeId: 'shape-u1', userId: 'u1', points: [{ lat: 32.1, lng: 34.8 }] },
+      },
+    });
+
+    useCollaborationStore.getState().setConnectionState('reconnecting');
+    let state = useCollaborationStore.getState();
+    expect(state.remoteCursors).toEqual({});
+    expect(state.remoteShapes).toEqual({});
+
+    // Reset and test polling
     useCollaborationStore.setState({
       remoteCursors: {
         u1: { userId: 'u1', lat: 32.1, lng: 34.8, updatedAt: Date.now() },
@@ -53,7 +68,7 @@ describe('collaborationStore', () => {
     });
 
     useCollaborationStore.getState().setConnectionState('polling');
-    let state = useCollaborationStore.getState();
+    state = useCollaborationStore.getState();
     expect(state.remoteCursors).toEqual({});
     expect(state.remoteShapes).toEqual({});
 

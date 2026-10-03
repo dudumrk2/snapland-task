@@ -46,7 +46,11 @@ export const useCollaborationStore = create<CollaborationState>((set) => ({
 
   setConnectionState: (connectionState) =>
     set((state) => {
-      if (connectionState === 'disconnected' || connectionState === 'polling') {
+      if (
+        connectionState === 'disconnected' ||
+        connectionState === 'polling' ||
+        connectionState === 'reconnecting'
+      ) {
         return {
           connectionState,
           remoteCursors: {},
