@@ -40,12 +40,12 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
                 pass
             raise TimeoutError(f"Database query timed out after {DB_TIMEOUT_SECONDS}s") from e
         except Exception as e:
+            try:
+                await self.session.rollback()
+            except Exception:
+                pass
             exc_str = str(e).lower()
             if "statement timeout" in exc_str or "canceling statement" in exc_str or "57014" in exc_str:
-                try:
-                    await self.session.rollback()
-                except Exception:
-                    pass
                 raise TimeoutError("Database query canceled by statement timeout") from e
             raise
 
@@ -59,12 +59,12 @@ class AreaRepository(BaseRepository[AreaModel], IAreaRepository):
                 pass
             raise TimeoutError(f"Database commit timed out after {DB_TIMEOUT_SECONDS}s") from e
         except Exception as e:
+            try:
+                await self.session.rollback()
+            except Exception:
+                pass
             exc_str = str(e).lower()
             if "statement timeout" in exc_str or "canceling statement" in exc_str or "57014" in exc_str:
-                try:
-                    await self.session.rollback()
-                except Exception:
-                    pass
                 raise TimeoutError("Database commit canceled by statement timeout") from e
             raise
 

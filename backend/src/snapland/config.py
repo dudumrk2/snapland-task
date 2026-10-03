@@ -73,7 +73,7 @@ def _get_or_create_dev_keys() -> tuple[str, str]:
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env"),
-        extra="allow",
+        extra="ignore",
         case_sensitive=True,
     )
 

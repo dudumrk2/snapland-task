@@ -25,6 +25,7 @@ from snapland.core.interfaces.services import (
     IEventPublisher,
     ISpatialService,
 )
+from snapland.middleware.metrics import area_operations_total, occ_conflicts_total
 
 logger = structlog.get_logger(__name__)
 
@@ -69,7 +70,6 @@ class AreaService(IAreaService):
         await self.cache.incr("areas:epoch")
 
         try:
-            from snapland.middleware.metrics import area_operations_total
             area_operations_total.labels(operation="create").inc()
         except Exception:
             pass
@@ -113,7 +113,6 @@ class AreaService(IAreaService):
 
         if current_area.version != req.version:
             try:
-                from snapland.middleware.metrics import occ_conflicts_total
                 occ_conflicts_total.inc()
             except Exception:
                 pass
@@ -151,7 +150,6 @@ class AreaService(IAreaService):
             current_area_now = await self.repo.get_by_id(area_id)
             if current_area_now:
                 try:
-                    from snapland.middleware.metrics import occ_conflicts_total
                     occ_conflicts_total.inc()
                 except Exception:
                     pass
@@ -167,7 +165,6 @@ class AreaService(IAreaService):
         await self.cache.incr("areas:epoch")
 
         try:
-            from snapland.middleware.metrics import area_operations_total
             area_operations_total.labels(operation="update").inc()
         except Exception:
             pass
@@ -203,7 +200,6 @@ class AreaService(IAreaService):
         await self.cache.incr("areas:epoch")
 
         try:
-            from snapland.middleware.metrics import area_operations_total
             area_operations_total.labels(operation="delete").inc()
         except Exception:
             pass

@@ -54,3 +54,19 @@ async def test_commit_with_timeout_rolls_back_on_timeout():
 
     assert "Database commit timed out" in str(exc_info.value)
     mock_session.rollback.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_execute_with_timeout_rolls_back_on_generic_db_error():
+    from sqlalchemy.exc import IntegrityError
+
+    mock_session = MagicMock()
+    mock_session.rollback = AsyncMock()
+    mock_session.execute = AsyncMock(side_effect=IntegrityError("INSERT ...", {}, Exception("violates foreign key")))
+
+    repo = AreaRepository(mock_session)
+    with pytest.raises(IntegrityError):
+        await repo._execute_with_timeout("INSERT ...")
+
+    mock_session.rollback.assert_awaited_once()
+

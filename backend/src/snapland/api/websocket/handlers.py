@@ -14,6 +14,7 @@ from snapland.core.domain.ws_messages import (
     CursorMoveServerPayload,
     ErrorMessage,
     ErrorPayload,
+    PongMessage,
     RemoteDrawMessage,
     RemoteDrawPayload,
     ServerMessage,
@@ -55,13 +56,15 @@ async def dispatch_message(conn: Connection, raw_data: str, app_state: Any) -> N
         await conn.enqueue(ErrorMessage(payload=ErrorPayload(code="VALIDATION_ERROR", message="Invalid JSON")))
         return
 
-    conn.last_received_time = time.monotonic()
-    conn.last_pong_time = time.monotonic()
+    # Every valid client frame (including PING/PONG keepalives) proves liveness:
+    # update receive/pong timestamps and clear any outstanding ping timer.
+    now = time.monotonic()
+    conn.last_received_time = now
+    conn.last_pong_time = now
     conn.last_ping_time = None
 
     if msg_type in ("PING", "PONG"):
         if msg_type == "PING":
-            from snapland.core.domain.ws_messages import PongMessage
             await conn.enqueue(PongMessage())
         return
 

@@ -15,10 +15,15 @@ from starlette.routing import Match
 
 
 def _get_or_create_metric(metric_cls: type, name: str, documentation: str, labelnames: tuple = (), **kwargs: Any) -> Any:
-    collector = REGISTRY._names_to_collectors.get(name)
-    if collector is not None:
-        return collector
-    return metric_cls(name, documentation, labelnames, **kwargs)
+    collectors = getattr(REGISTRY, "_names_to_collectors", None)
+    if collectors is not None and name in collectors:
+        return collectors[name]
+    try:
+        return metric_cls(name, documentation, labelnames, **kwargs)
+    except ValueError:
+        if collectors is not None and name in collectors:
+            return collectors[name]
+        raise
 
 
 http_requests_total: Counter = _get_or_create_metric(

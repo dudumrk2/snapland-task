@@ -15,6 +15,7 @@ from snapland.core.domain.exceptions import (
     NotFoundError,
     ValidationError,
 )
+from sqlalchemy.exc import DBAPIError
 
 log = logging.getLogger(__name__)
 
@@ -130,8 +131,6 @@ def setup_error_handlers(app: FastAPI) -> None:
             },
         )
 
-    from sqlalchemy.exc import DBAPIError
-
     @app.exception_handler(DBAPIError)
     async def dbapi_error_handler(request: Request, exc: DBAPIError) -> typing.Any:
         exc_str = str(exc).lower()
@@ -160,21 +159,6 @@ def setup_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def internal_error_handler(request: Request, exc: Exception) -> typing.Any:
-        exc_str = str(exc).lower()
-        if "statement timeout" in exc_str or "canceling statement" in exc_str or "57014" in exc_str:
-            log.warning("Database statement timeout: %s", exc)
-            return JSONResponse(
-                status_code=504,
-                content={
-                    "error": {
-                        "code": "GATEWAY_TIMEOUT",
-                        "message": "Database query timed out",
-                    },
-                    "message": "Database query timed out",
-                    "details": {},
-                },
-            )
-
         log.exception("Unhandled exception: %s", exc)
         return JSONResponse(
             status_code=500,
