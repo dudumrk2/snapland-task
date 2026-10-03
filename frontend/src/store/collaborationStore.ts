@@ -144,7 +144,7 @@ export const useCollaborationStore = create<CollaborationState>((set) => ({
           ...state.remoteShapes,
           [shapeId]: {
             ...existing,
-            points: [...existing.points, ...append],
+            points: [...existing.points, ...(append || [])],
           },
         },
       };

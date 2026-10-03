@@ -16,6 +16,6 @@ export interface IAuthApi {
   refresh(): Promise<TokenResponse>; // cookie-based; also used to restore session on page load
   logout(): Promise<void>;
   getWsTicket(): Promise<string>; // POST /auth/ws-ticket
-  getCurrentUser(): Promise<AuthUser | null>;
+  getCurrentUser(tokenOverride?: string): Promise<AuthUser | null>;
 }
 

@@ -25,7 +25,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     authApi
       .refresh()
       .then(async (tokens) => {
-        const user = await authApi.getCurrentUser();
+        const user = await authApi.getCurrentUser(tokens.accessToken);
         if (user) {
           useAuthStore.getState().setSession(user, tokens.accessToken);
         } else {

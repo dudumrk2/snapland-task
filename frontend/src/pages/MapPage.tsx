@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MapView } from '../components/map/MapView';
 import { AreaPanel } from '../components/ui/AreaPanel';
 import { UserPresenceBar } from '../components/ui/UserPresenceBar';
@@ -10,6 +10,17 @@ import { WebSocketProvider } from '../providers/WebSocketProvider';
 export const MapPage: React.FC = () => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const drawingController = useDrawing();
+
+  useEffect(() => {
+    const handleToast = (e: Event) => {
+      const custom = e as CustomEvent<{ message: string }>;
+      if (custom.detail?.message) {
+        setToastMessage(custom.detail.message);
+      }
+    };
+    window.addEventListener('snapland:toast', handleToast);
+    return () => window.removeEventListener('snapland:toast', handleToast);
+  }, []);
 
   return (
     <WebSocketProvider>

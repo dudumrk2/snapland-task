@@ -29,7 +29,8 @@ export const MapView: React.FC<MapViewProps> = ({
   onToastRef.current = onToast;
 
   const { fetchAreasInBounds } = useAreas();
-  const { sendCursorMove } = useWebSocket();
+  const { sendCursorMove, connectionState } = useWebSocket();
+  const currentBoundsRef = useRef<{ bounds: any; zoom: number } | null>(null);
 
   // Initialize Map
   useEffect(() => {
@@ -65,10 +66,33 @@ export const MapView: React.FC<MapViewProps> = ({
   // Track map bounds and refetch areas
   useMapBounds(mapInstance, {
     onBoundsChange: (bounds, zoom) => {
+      currentBoundsRef.current = { bounds, zoom };
       fetchAreasInBounds(bounds, zoom);
     },
     debounceMs: 250,
   });
+
+  // Re-sync viewport on RESYNC_REQUIRED event
+  useEffect(() => {
+    const handleResync = () => {
+      if (currentBoundsRef.current) {
+        fetchAreasInBounds(currentBoundsRef.current.bounds, currentBoundsRef.current.zoom);
+      }
+    };
+    window.addEventListener('snapland:resync_viewport', handleResync);
+    return () => window.removeEventListener('snapland:resync_viewport', handleResync);
+  }, [fetchAreasInBounds]);
+
+  // Polling fallback when connectionState === 'polling' (HLD §9.7)
+  useEffect(() => {
+    if (connectionState !== 'polling') return;
+    const interval = setInterval(() => {
+      if (currentBoundsRef.current) {
+        fetchAreasInBounds(currentBoundsRef.current.bounds, currentBoundsRef.current.zoom);
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [connectionState, fetchAreasInBounds]);
 
   // Track cursor movement for collaborative presence
   useEffect(() => {

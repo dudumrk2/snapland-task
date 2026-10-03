@@ -145,7 +145,7 @@ export class MockAuthApi implements IAuthApi {
     throw new Error('No active session to refresh');
   }
 
-  async getCurrentUser(): Promise<AuthUser | null> {
+  async getCurrentUser(_tokenOverride?: string): Promise<AuthUser | null> {
     await this.delay();
     if (typeof window !== 'undefined' && window.localStorage) {
       const stored = window.localStorage.getItem(STORAGE_SESSION_KEY);

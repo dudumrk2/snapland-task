@@ -1,6 +1,7 @@
 import type { IWebSocketService } from '../../api/interfaces/IWebSocketService';
 import { useCollaborationStore } from '../../store/collaborationStore';
 import { useAreasStore } from '../../store/areasStore';
+import { normalizeArea } from '../../api/http/areaApi';
 
 export interface SubscriptionOptions {
   enableProactiveConflict?: boolean;
@@ -26,7 +27,7 @@ export function setupWebSocketSubscriptions(
   });
 
   const unsubJoined = wsService.on('USER_JOINED', (payload) => {
-    useCollaborationStore.getState().addPresenceUser(payload);
+    useCollaborationStore.getState().addPresenceUser(payload.user);
   });
 
   const unsubLeft = wsService.on('USER_LEFT', (payload) => {
@@ -44,7 +45,8 @@ export function setupWebSocketSubscriptions(
 
   // 4. Area sync & proactive OCC conflict detection
   const unsubAreaSaved = wsService.on('AREA_SAVED', (payload, eventId) => {
-    useAreasStore.getState().addArea(payload.area);
+    const area = normalizeArea(payload.area);
+    useAreasStore.getState().addArea(area);
     if (payload.shapeId) {
       useCollaborationStore.getState().removeRemoteShape(payload.shapeId);
     }
@@ -52,13 +54,14 @@ export function setupWebSocketSubscriptions(
   });
 
   const unsubAreaUpdated = wsService.on('AREA_UPDATED', (payload, eventId) => {
+    const area = normalizeArea(payload.area);
     const areasState = useAreasStore.getState();
     const { editingAreaId, editedCoordinates, areas } = areasState;
 
     // Proactive conflict detection (HLD §14)
     if (
       options.enableProactiveConflict &&
-      editingAreaId === payload.area.id &&
+      editingAreaId === area.id &&
       editedCoordinates
     ) {
       const local = areas.find((a) => a.id === editingAreaId);
@@ -70,15 +73,42 @@ export function setupWebSocketSubscriptions(
             coordinates: editedCoordinates,
             version: local.version,
           },
-          currentArea: payload.area,
+          currentArea: area,
         });
       }
     }
-    areasState.updateArea(payload.area);
+    areasState.updateArea(area);
     if (eventId) useCollaborationStore.getState().setLastEventId(eventId);
   });
 
   const unsubAreaDeleted = wsService.on('AREA_DELETED', (payload, eventId) => {
+    const areasState = useAreasStore.getState();
+    const { editingAreaId, editedCoordinates, areas } = areasState;
+
+    // Proactive conflict detection if the area being edited was deleted remotely
+    if (
+      options.enableProactiveConflict &&
+      editingAreaId === payload.areaId &&
+      editedCoordinates
+    ) {
+      const local = areas.find((a) => a.id === editingAreaId);
+      if (local) {
+        areasState.setConflict({
+          localArea: {
+            id: local.id,
+            name: local.name,
+            coordinates: editedCoordinates,
+            version: local.version,
+          },
+          currentArea: {
+            ...local,
+            version: local.version + 1,
+            name: `${local.name} (Deleted remotely)`,
+          },
+        });
+      }
+    }
+
     useAreasStore.getState().deleteArea(payload.areaId);
     if (eventId) useCollaborationStore.getState().setLastEventId(eventId);
   });
