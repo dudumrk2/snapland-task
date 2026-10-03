@@ -86,12 +86,41 @@ async def refresh(
 
 @router.post("/logout")
 async def logout(
+    request: Request,
     response: Response,
     refresh_token: str = Cookie(None),
     auth_svc: IAuthService = Depends(get_auth_service)
 ):
+    user_id = None
     if refresh_token:
-        await auth_svc.revoke_token(refresh_token)
+        # Try to resolve user_id from the access token first (fastest path).
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            try:
+                from snapland.config import settings
+                user_id = auth_svc.verify_access_token(auth_header.split(" ")[1], settings.JWT_PUBLIC_KEY)
+            except Exception:
+                pass
+
+        revoked_user_id = await auth_svc.revoke_token(refresh_token)
+        if not user_id:
+            user_id = revoked_user_id
+
+        # Disconnect on THIS instance immediately.
+        if user_id:
+            ws_manager = getattr(request.app.state, "ws_manager", None)
+            if ws_manager:
+                await ws_manager.disconnect_user(user_id)
+
+        # Broadcast logout to ALL instances via Redis control channel.
+        if user_id:
+            ephemeral_bus = getattr(request.app.state, "ephemeral_bus", None)
+            if ephemeral_bus and hasattr(ephemeral_bus, "publish_control"):
+                try:
+                    await ephemeral_bus.publish_control({"type": "logout", "userId": str(user_id)})
+                except Exception:
+                    pass  # Best-effort; local disconnect already done above
+
     response.delete_cookie("refresh_token", path="/api/v1/auth")
     return {"status": "ok"}
 

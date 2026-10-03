@@ -40,7 +40,7 @@ services:
     build: 
       context: ../backend
       dockerfile: Dockerfile
-    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --ws-ping-interval 30 --ws-ping-timeout 10
     deploy:
       replicas: 2
     depends_on:

@@ -1,10 +1,13 @@
-import pytest
-import uuid
 import datetime
-from snapland.infrastructure.db.repositories.area_repository import AreaRepository
-from snapland.infrastructure.db.repositories.user_repository import UserRepository
+import uuid
+
+import pytest
+
 from snapland.core.domain.area import Area, Coordinate
 from snapland.core.domain.user import User
+from snapland.infrastructure.db.repositories.area_repository import AreaRepository
+from snapland.infrastructure.db.repositories.user_repository import UserRepository
+
 
 @pytest.mark.asyncio
 async def test_real_db_area_lifecycle(db_session):

@@ -1,12 +1,15 @@
-import pytest
-import uuid
 import datetime
+import uuid
 from unittest.mock import AsyncMock, MagicMock
-from snapland.core.services.area_service import AreaService
+
+import pytest
+
 from snapland.core.domain.area import Area, Coordinate, CreateAreaRequest, UpdateAreaRequest
-from snapland.core.interfaces.services import PolygonValidation
-from snapland.core.services.conflict_service import ConflictError
 from snapland.core.domain.exceptions import NotFoundError
+from snapland.core.interfaces.services import PolygonValidation
+from snapland.core.services.area_service import AreaService
+from snapland.core.services.conflict_service import ConflictError
+
 
 @pytest.fixture
 def mock_repo():

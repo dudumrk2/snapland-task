@@ -446,6 +446,7 @@ class ICacheRepository(Protocol):
     async def get(self, key: str) -> str | None: ...
     async def set(self, key: str, value: str, ttl_seconds: int) -> None: ...
     async def incr(self, key: str) -> int: ...          # used for the viewport-cache epoch
+    async def getdel(self, key: str) -> str | None: ... # atomic ticket redemption
 ```
 
 ```python
@@ -505,16 +506,16 @@ class IEventPublisher(Protocol):
 from dataclasses import dataclass
 from typing import AsyncIterator, Protocol, Sequence
 from uuid import UUID
-from snapland.core.domain.ws_messages import WsMessage, PresenceUser
+from snapland.core.domain.ws_messages import ServerMessage, PresenceUser
 
 @dataclass(frozen=True)
 class Envelope:
     origin: str                # INSTANCE_ID of the publishing instance (receivers skip their own)
-    message: WsMessage
+    message: ServerMessage
 
 @dataclass(frozen=True)
 class CatchUp:
-    events: Sequence[tuple[str, WsMessage]]   # (stream id, AREA_* message)
+    events: Sequence[tuple[str, ServerMessage]]   # (stream id, AREA_* message)
     resync_required: bool                     # last_id older than retention ⇒ client must refetch over HTTP
 
 class IEphemeralBus(Protocol):                # Redis Pub/Sub — loss-tolerant
@@ -522,12 +523,14 @@ class IEphemeralBus(Protocol):                # Redis Pub/Sub — loss-tolerant
     def subscribe(self) -> AsyncIterator[Envelope]: ...
 
 class IEventStream(Protocol):                 # Redis Streams — durable, replayable
-    async def append(self, message: WsMessage) -> str: ...                       # returns stream id (eventId)
+    async def append(self, message: ServerMessage) -> str: ...                       # returns stream id (eventId)
     async def read_since(self, last_id: str, limit: int = 500) -> CatchUp: ...
-    def follow(self) -> AsyncIterator[tuple[str, WsMessage]]: ...                # XREAD BLOCK from "$"
+    def follow(self) -> AsyncIterator[tuple[str, ServerMessage]]: ...                # XREAD BLOCK from "$"
 
 class IPresenceStore(Protocol):               # Redis ZSET, heartbeat-based
     async def heartbeat(self, user_id: UUID, conn_id: str, display_name: str) -> None: ...
+    async def heartbeat_batch(self, items: Sequence[tuple[UUID, str, str]]) -> None: ...
+    async def add_connection(self, user_id: UUID, conn_id: str, display_name: str) -> bool: ... # True ⇒ first active connection
     async def remove(self, user_id: UUID, conn_id: str) -> bool: ...             # True ⇒ user has no connections left
     async def snapshot(self) -> Sequence[PresenceUser]: ...
     async def reap_expired(self) -> Sequence[UUID]: ...                          # crash recovery: users to announce as left
@@ -625,16 +628,16 @@ export interface WsPayloadMap {
   // both directions (server adds userId)
   CURSOR_MOVE:  { lat: number; lng: number; userId?: string };
   // server → client
-  REMOTE_DRAW:  { userId: string; shapeId: string; phase: 'start' | 'update' | 'cancel';
-                  seq: number; fromIndex: number; append: Coordinate[] };
+  REMOTE_DRAW:  { userId: string; shapeId: string; phase: 'start' | 'update' | 'commit' | 'cancel';
+                  seq?: number; fromIndex?: number; append?: Coordinate[]; name?: string; points?: Coordinate[] };
   AREA_SAVED:   { area: Area; shapeId?: string };          // shapeId lets peers drop the matching preview
   AREA_UPDATED: { area: Area };
   AREA_DELETED: { areaId: string };
-  USER_JOINED:  PresenceUser;
+  USER_JOINED:  { user: PresenceUser };
   USER_LEFT:    { userId: string };
   PRESENCE_SNAPSHOT: { users: PresenceUser[] };
-  RESYNC_REQUIRED: Record<string, never>;
-  ERROR:        { code: string; message: string; retryAfterMs?: number };
+  RESYNC_REQUIRED: { reason?: string };
+  ERROR:        { code: string; message?: string; retryAfterMs?: number };
 }
 
 export interface WsMessage<T extends WsMessageType = WsMessageType> {
@@ -913,7 +916,7 @@ Each connection owns a bounded `asyncio.Queue(maxsize=256)` and a writer task:
 
 - The writer waits up to **50 ms** (micro-batch window) — or flushes immediately if a durable event is queued — drains the queue and sends **one array frame**. Messages are serialized once per instance (`orjson`) and the bytes are joined per client, so serialization cost does not scale with the number of recipients.
 - **Coalescing:** `CURSOR_MOVE` keeps only the latest per user; contiguous `REMOTE_DRAW` updates for the same `shapeId` are merged into a single `append`.
-- **Overflow:** ephemeral messages are dropped oldest-first (`ws_messages_dropped_total{reason="queue_full"}`). If a **durable** message cannot be enqueued the connection is closed with code `1013`; the client reconnects and catches up (§9.7).
+- **Overflow:** ephemeral messages are dropped oldest-first (`ws_messages_dropped_total{reason="queue_full"}`). When a durable message arrives and the queue is full, the oldest ephemeral message is evicted to make room. Only if the queue is entirely saturated with durable messages is the connection closed with code `1013`; the client reconnects and catches up (§9.7).
 - **Inbound limits:** max frame size 64 KB, max 5 concurrent connections per user.
 
 ### 9.4 Rate Limiting
@@ -931,24 +934,26 @@ Algorithm: Redis sorted-set sliding window executed as a **single Lua script** (
 
 ### 9.5 Presence
 
-- Redis sorted set `presence:global`: member `userId:connId`, score = last heartbeat (unix ms). Each connection heartbeats every 10 s; an entry older than 30 s is dead.
-- On connect the server sends `PRESENCE_SNAPSHOT` to the joiner and publishes `USER_JOINED` (only if the user had no other live connection).
-- On disconnect the server removes the entry and publishes `USER_LEFT` if no entries remain for that user.
-- **Crash recovery:** a reaper task on every instance (guarded by a `SET NX PX` lock so only one runs per tick) removes expired entries and publishes `USER_LEFT` for users with none left.
+- Redis sorted set `presence:global`: member `userId:connId`, score = last heartbeat (unix ms). In addition, `presence:conns:{userId}` set tracks active connections per user with O(1) cardinality check (`SCARD`) instead of scanning `presence:global`. Display names are cached in hash `presence:names`.
+- On connect, `add_connection` registers the connection. The server sends `PRESENCE_SNAPSHOT` to the joiner, and if this was the user's first active connection, broadcasts `USER_JOINED` locally (except to sender) and publishes to `ephemeral_bus` (with `origin=INSTANCE_ID`).
+- Heartbeat: local connections are heartbeated every 10 s in a single Redis pipeline batch (`heartbeat_batch`); an entry older than 30 s is considered dead.
+- On disconnect, the server removes the connection. If no active connections remain for that user (`remove` returns True), it broadcasts `USER_LEFT` locally and publishes to `ephemeral_bus`.
+- **Crash recovery:** a reaper task on every instance (guarded by a `SET NX PX` lock with `px=8000` so only one instance runs per tick) identifies expired entries from `presence:global`, cleans up orphan keys, and announces `USER_LEFT` via `ephemeral_bus` and local broadcast for dead users.
 
 ### 9.6 Connection Lifecycle & Security
 
-1. Client obtains a single-use ticket: `POST /auth/ws-ticket` (Bearer) → `{ticket}`, stored in Redis with a 30 s TTL.
-2. Client opens `wss://…/ws?ticket=…&lastEventId=…`. The server checks the `Origin` header against the allowlist (prevents cross-site WebSocket hijacking), redeems the ticket atomically (`GETDEL`), and rejects with a close **before** accepting the upgrade if either check fails.
-3. The connection lives at most as long as an access token (15 min); the server then closes with code `4401`. The client fetches a fresh ticket and reconnects transparently (this does not count as a failure). Logout / session revocation closes the user's sockets via a Redis control message.
-4. Ping/pong every 30 s; the connection is closed if no pong arrives within 10 s.
+1. Client obtains a single-use ticket: `POST /auth/ws-ticket` (Bearer) → `{ticket}`, stored in Redis (`ws_ticket:{ticket}`) with a 30 s TTL.
+2. Client opens `wss://…/ws?ticket=…&lastEventId=…`. The server checks the `Origin` header against `WS_ALLOWED_ORIGINS` (when configured, preventing cross-site WebSocket hijacking), redeems the ticket atomically (`GETDEL`), and rejects with an immediate close code before accepting the upgrade: `4003` (forbidden origin) or `4001` (invalid/reused ticket).
+3. The connection is initially connected without registering into the live broadcast pool (`register=False`). It receives `PRESENCE_SNAPSHOT` and replays any pending durable events (`read_since(lastEventId)`); only once replay completes is it added to the live broadcast pool, preventing out-of-order event interleaving.
+4. The connection lives at most as long as an access token (15 min); the server then closes with code `4401`. The client fetches a fresh ticket and reconnects transparently (this does not count as a failure). Logout / session revocation closes the user's sockets via a Redis control message.
+5. Ping/pong every 30 s; the connection is closed if no pong arrives within 10 s.
 
 ### 9.7 Graceful Degradation & Catch-up
 
 1. Reconnect with exponential backoff **plus jitter**: 1 s → 2 s → 4 s → 8 s → 16 s → 30 s (cap).
-2. On every (re)connect the client sends `lastEventId`. The server replays newer `AREA_*` events from the stream. If `lastEventId` is older than the retention window, it sends `RESYNC_REQUIRED` and the client refetches the viewport over HTTP.
+2. On every (re)connect the client sends `lastEventId`. The server replays newer `AREA_*` events from the stream (`read_since(lastEventId)`). If `lastEventId` is `0-0`, it replays from stream inception. If `lastEventId` is trimmed or invalid, it sends `RESYNC_REQUIRED` and the client refetches the viewport over HTTP.
 3. After **5 consecutive failures** the client enters `polling`: read-only HTTP viewport refetch every 5 s (saving areas still works over HTTP), while retrying the WebSocket every 30 s.
-4. If Redis is unavailable, each instance keeps serving its own clients (local fan-out continues), cross-instance delivery pauses, and `/health/ready` reports `redis: "down"` with status `degraded`.
+4. Background tasks (`run_ephemeral_subscriber`, `run_stream_follower`, `run_presence_reaper`, `run_presence_heartbeat`) run resiliently in `lifespan` with exponential backoff recovery loops (capped at 10s). If Redis is unavailable or tasks fail, status is reflected in `/health/ready` under `background_tasks` reporting `degraded`, while local fan-out continues.
 
 ---
 
@@ -971,7 +976,7 @@ Algorithm: Redis sorted-set sliding window executed as a **single Lua script** (
 | `GET` | `/api/v1/areas/{id}/history` | Version history | Bearer |
 | `GET` | `/api/v1/users/me` | Profile | Bearer |
 | `GET` | `/health/live` | Liveness: process is up | Public |
-| `GET` | `/health/ready` | Readiness: DB + Redis (503 if DB down; `degraded` if only Redis is down). `/health` is an alias. | Public |
+| `GET` | `/health/ready` | Readiness: DB + Redis + background tasks (503 if DB down; `degraded` if Redis or any background task is down). `/health` is an alias. | Public |
 | `GET` | `/health/db` | Runs `EXPLAIN` on the viewport query and verifies the spatial index is used | Internal |
 | `GET` | `/metrics` | Prometheus | Internal |
 | `WS` | `/ws?ticket=…&lastEventId=…` | WebSocket | One-time ticket |

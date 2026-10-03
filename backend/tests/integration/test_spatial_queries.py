@@ -1,9 +1,10 @@
-import pytest
-import uuid
-import datetime
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from snapland.core.domain.area import Coordinate
 from snapland.infrastructure.db.repositories.area_repository import AreaRepository
-from snapland.core.domain.area import Coordinate, Area
+
 
 @pytest.fixture
 def mock_session():

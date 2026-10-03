@@ -11,6 +11,7 @@ class HealthResponse(BaseModel):
     status: str
     db: str
     redis: str
+    background_tasks: typing.Optional[dict[str, bool]] = None
 
 @router.get("/health/live")
 async def health_live() -> typing.Any:
@@ -46,11 +47,17 @@ async def health_ready(request: Request, response: Response) -> typing.Any:
         if overall_status == "ok":
             overall_status = "degraded"
 
+    bg_tasks = getattr(request.app.state, "bg_tasks_status", None)
+    if bg_tasks and any(not is_healthy for is_healthy in bg_tasks.values()):
+        if overall_status == "ok":
+            overall_status = "degraded"
+
     response.status_code = status_code
     return HealthResponse(
         status=overall_status,
         db=db_status,
-        redis=redis_status
+        redis=redis_status,
+        background_tasks=bg_tasks,
     )
 
 @router.get("/health/db")
