@@ -159,14 +159,10 @@ async def run_ephemeral_subscriber(app: FastAPI):
     instance_id = settings.INSTANCE_ID
     ephemeral_bus: IEphemeralBus = app.state.ephemeral_bus
     manager: WebSocketManager = app.state.ws_manager
-    sub = ephemeral_bus.subscribe()
-    if hasattr(sub, "__await__") and not hasattr(sub, "__aiter__"):
-        sub = await sub
-    if hasattr(sub, "__aiter__"):
-        async for envelope in sub:
-            if envelope.origin == instance_id:
-                continue
-            await manager.broadcast_ephemeral(envelope.message)
+    async for envelope in ephemeral_bus.subscribe():
+        if envelope.origin == instance_id:
+            continue
+        await manager.broadcast_ephemeral(envelope.message)
 
 
 async def run_control_subscriber(app: FastAPI):
@@ -177,20 +173,16 @@ async def run_control_subscriber(app: FastAPI):
     if not hasattr(ephemeral_bus, "subscribe_control"):
         return
     manager: WebSocketManager = app.state.ws_manager
-    sub = ephemeral_bus.subscribe_control()
-    if hasattr(sub, "__await__") and not hasattr(sub, "__aiter__"):
-        sub = await sub
-    if hasattr(sub, "__aiter__"):
-        async for cmd in sub:
-            try:
-                cmd_type = cmd.get("type")
-                if cmd_type == "logout":
-                    user_id_str = cmd.get("userId")
-                    if user_id_str:
-                        user_id = _uuid.UUID(user_id_str)
-                        await manager.disconnect_user(user_id)
-            except Exception as e:
-                logger.warning("Control subscriber error processing command", cmd=cmd, exc_info=e)
+    async for cmd in ephemeral_bus.subscribe_control():
+        try:
+            cmd_type = cmd.get("type")
+            if cmd_type == "logout":
+                user_id_str = cmd.get("userId")
+                if user_id_str:
+                    user_id = _uuid.UUID(user_id_str)
+                    await manager.disconnect_user(user_id)
+        except Exception as e:
+            logger.warning("Control subscriber error processing command", cmd=cmd, exc_info=e)
 
 
 async def run_stream_follower(app: FastAPI):
@@ -311,11 +303,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Snapland API", lifespan=lifespan)
 
-# Middleware stack
-app.add_middleware(RequestIdMiddleware)
-app.add_middleware(PrometheusMiddleware)
+# Middleware stack (added in reverse order: RequestId -> Prometheus -> RateLimit -> Timeout -> endpoints)
 app.add_middleware(TimeoutMiddleware, timeout_seconds=30.0)
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(PrometheusMiddleware)
+app.add_middleware(RequestIdMiddleware)
 setup_error_handlers(app)
 
 app.include_router(health_router)

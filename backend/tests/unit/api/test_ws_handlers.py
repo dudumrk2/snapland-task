@@ -85,6 +85,25 @@ async def test_dispatch_cursor_move_publishes_envelope(mock_conn, mock_app_state
 
 
 @pytest.mark.asyncio
+async def test_dispatch_cursor_move_sent_at_pass_through_and_clamping(mock_conn, mock_app_state):
+    import time
+    now_epoch = time.time()
+
+    # Valid sentAt
+    raw_valid = f'{{"type":"CURSOR_MOVE","payload":{{"lat":32.1,"lng":34.8,"sentAt":{now_epoch}}}}}'
+    await dispatch_message(mock_conn, raw_valid, mock_app_state)
+    env = mock_app_state.ephemeral_bus.publish.call_args[0][0]
+    assert env.message.payload.sentAt == pytest.approx(now_epoch, abs=0.01)
+
+    # Bogus future timestamp (> now + 5s) - must be discarded
+    mock_conn.last_cursor_time = 0.0  # reset throttle
+    raw_future = f'{{"type":"CURSOR_MOVE","payload":{{"lat":32.1,"lng":34.8,"sentAt":{now_epoch + 1000.0}}}}}'
+    await dispatch_message(mock_conn, raw_future, mock_app_state)
+    env2 = mock_app_state.ephemeral_bus.publish.call_args[0][0]
+    assert env2.message.payload.sentAt is None
+
+
+@pytest.mark.asyncio
 async def test_dispatch_draw_commit_calls_create_area_with_shape_id(mock_conn, mock_app_state):
     raw = '{"type":"DRAW_COMMIT","payload":{"shapeId":"shape-abc","name":"My Park","points":[{"lat":32.0,"lng":34.0},{"lat":32.1,"lng":34.0},{"lat":32.1,"lng":34.1},{"lat":32.0,"lng":34.0}]}}'
     await dispatch_message(mock_conn, raw, mock_app_state)

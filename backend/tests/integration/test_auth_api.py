@@ -90,6 +90,13 @@ def test_logout_disconnects_websocket_via_revoked_token(auth_service_mock):
     mock_ws_mgr = AsyncMock()
     app.state.ws_manager = mock_ws_mgr
     mock_bus = AsyncMock()
+
+    async def _empty_gen():
+        if False:
+            yield None
+
+    mock_bus.subscribe = _empty_gen
+    mock_bus.subscribe_control = _empty_gen
     app.state.ephemeral_bus = mock_bus
 
     response = client.post("/api/v1/auth/logout", cookies={"refresh_token": "old_refresh"})

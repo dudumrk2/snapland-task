@@ -8,6 +8,9 @@ from starlette.responses import JSONResponse
 
 from snapland.core.interfaces.services import IRateLimiter, RateLimitResult
 from snapland.middleware.error_handler import RateLimitExceeded
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 LUA_SCRIPT = """
 local key = KEYS[1]
@@ -77,19 +80,29 @@ async def check_rate_limit(
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        # Health probes and internal Prometheus metrics must never be rate limited
+        path = request.url.path
+        if path in ("/health/live", "/health/ready", "/metrics") or path.startswith("/health/"):
+            return await call_next(request)
+
         limiter = request.app.state.rate_limiter if hasattr(request.app.state, "rate_limiter") else None
         if limiter:
             forwarded = request.headers.get("X-Forwarded-For")
             ip = forwarded.split(",")[0] if forwarded else (request.client.host if request.client else "127.0.0.1")
-            res = await limiter.check_limit(ip, "http", 100, 60)
-            if not res.allowed:
-                return JSONResponse(
-                    status_code=429,
-                    content={
-                        "error": "RATE_LIMITED",
-                        "message": "Rate limit exceeded",
-                        "details": {"retryAfterMs": res.retry_after_ms},
-                    },
-                    headers={"Retry-After": str(max(1, res.retry_after_ms // 1000))},
-                )
+            try:
+                res = await limiter.check_limit(ip, "http", 100, 60)
+                if not res.allowed:
+                    return JSONResponse(
+                        status_code=429,
+                        content={
+                            "error": "RATE_LIMITED",
+                            "message": "Rate limit exceeded",
+                            "details": {"retryAfterMs": res.retry_after_ms},
+                        },
+                        headers={"Retry-After": str(max(1, res.retry_after_ms // 1000))},
+                    )
+            except Exception as e:
+                # Fail open to preserve API availability if Redis has a transient issue
+                logger.warning("Rate limiter check failed, failing open", error=str(e), path=path)
+
         return await call_next(request)

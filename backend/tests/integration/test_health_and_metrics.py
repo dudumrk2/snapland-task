@@ -33,6 +33,38 @@ def test_health_db_spatial_index():
         assert "areas_geom_gist" in data["plan"]
 
 
+def test_health_db_missing_spatial_index_returns_500(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+    from snapland.infrastructure.db import session as db_session_module
+
+    # Mock engine connection returning a Seq Scan plan without areas_geom_gist
+    mock_conn = MagicMock()
+    mock_conn.execute = AsyncMock(return_value=MagicMock(fetchall=lambda: [("Seq Scan on areas (cost=0.00..10.00)",)]))
+    mock_conn.begin = MagicMock()
+    mock_conn.begin.return_value.__aenter__ = AsyncMock()
+    mock_conn.begin.return_value.__aexit__ = AsyncMock()
+
+    mock_engine = MagicMock()
+    mock_engine.connect = MagicMock()
+    mock_engine.connect.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_engine.connect.return_value.__aexit__ = AsyncMock()
+    mock_engine.dispose = AsyncMock()
+
+    monkeypatch.setattr(db_session_module, "engine", mock_engine)
+    app.state.db_engine = mock_engine
+
+    with TestClient(app) as client:
+        resp = client.get("/health/db")
+        assert resp.status_code == 500
+        data = resp.json()
+        assert data["status"] == "error"
+        assert data["message"] == "Spatial index not used"
+        assert "Seq Scan on areas" in data["plan"]
+
+    # Restore engine
+    delattr(app.state, "db_engine")
+
+
 def test_metrics_endpoint():
     with TestClient(app) as client:
         resp = client.get("/metrics")

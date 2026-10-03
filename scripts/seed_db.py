@@ -86,7 +86,10 @@ async def get_or_create_seed_user(session: AsyncSession) -> uuid.UUID:
     return user_id
 
 
-async def seed_polygons(target_count: int, batch_size: int = 2000, clean: bool = False):
+async def seed_polygons(target_count: int, batch_size: int = 2000, clean: bool = False, force: bool = False):
+    if clean and not force:
+        raise ValueError("Destructive flag '--clean' requires explicit '--force' to prevent accidental data loss.")
+
     engine = create_async_engine(settings.DATABASE_URL, echo=False)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
@@ -270,11 +273,12 @@ def main():
     parser = argparse.ArgumentParser(description="Seed Snapland DB and run spatial benchmarks")
     parser.add_argument("--polygons", type=int, default=0, help="Target number of polygons in database (e.g. 10000 or 100000)")
     parser.add_argument("--clean", action="store_true", help="Truncate areas before seeding")
+    parser.add_argument("--force", action="store_true", help="Explicit confirmation for destructive operations like --clean")
     parser.add_argument("--benchmark", action="store_true", help="Run viewport query benchmark")
     args = parser.parse_args()
 
     if args.polygons > 0:
-        asyncio.run(seed_polygons(args.polygons, clean=args.clean))
+        asyncio.run(seed_polygons(args.polygons, clean=args.clean, force=args.force))
 
     if args.benchmark or args.polygons > 0:
         asyncio.run(benchmark_viewport_queries())

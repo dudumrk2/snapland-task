@@ -9,9 +9,9 @@ This document contains **empirical performance benchmarks, query execution plans
 - **Host Platform:** Windows 11 Enterprise (x64)
 - **CPU:** Multi-core Intel / AMD host CPU (8 cores)
 - **Memory:** 16 GB RAM
-- **Runtime Environment:** Python 3.13.12 (CPython), FastAPI 0.115, asyncpg 0.30, uvicorn
-- **Database Engine:** PostgreSQL 16.2 with PostGIS 3.4.2 (Docker container `infra-postgres-1`)
-- **Cache & Pub/Sub:** Redis 7.2.4 (Docker container `infra-redis-1`)
+- **Runtime Environment:** Python 3.13.12 (CPython), FastAPI 0.135.3, asyncpg 0.31.0, SQLAlchemy 2.0.49, uvicorn
+- **Database Engine:** PostgreSQL 16.4 with PostGIS 3.4.3 (Docker container `infra-postgres-1`)
+- **Cache & Pub/Sub:** Redis 7.2.4 (Docker container `infra-redis-1`), `redis` python client 7.4.0
 - **Execution Mode:** Local development environment against single backend replica (k6 not installed on host; load tested via `scripts/loadtest_collab.py`)
 - **Test Date:** October 2026
 

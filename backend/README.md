@@ -40,7 +40,7 @@ Create your `.env` file (reference variable names in the section below):
 cp .env.example .env
 ```
 
-*(Note: In local development, if RSA key variables are omitted, ephemeral dev RSA keys are automatically generated in memory on startup).*
+*(Note: In local development, if RSA key variables are omitted, ephemeral dev RSA keys are automatically generated in the OS temp directory on startup).*
 
 ### 3. Install Dependencies
 

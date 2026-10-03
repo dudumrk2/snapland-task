@@ -1,7 +1,11 @@
 import asyncio
+
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 EXEMPT_PATHS = frozenset({"/metrics", "/health/live", "/health/ready", "/health/db"})
 
@@ -17,7 +21,7 @@ class TimeoutMiddleware:
             return
 
         path = scope.get("path", "")
-        if path in EXEMPT_PATHS or path.startswith("/metrics"):
+        if path in EXEMPT_PATHS:
             await self.app(scope, receive, send)
             return
 
@@ -51,3 +55,9 @@ class TimeoutMiddleware:
                     },
                 )
                 await response(scope, receive, send)
+            else:
+                logger.warning(
+                    "HTTP request timed out after response headers were already sent",
+                    path=path,
+                    timeout_seconds=self.timeout_seconds,
+                )

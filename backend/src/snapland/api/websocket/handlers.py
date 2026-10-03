@@ -145,7 +145,10 @@ async def dispatch_message(conn: Connection, raw_data: str, app_state: Any) -> N
         if sent_at_raw is not None:
             try:
                 v = float(sent_at_raw)
-                sent_at_val = v / 1000.0 if v > 1e11 else v
+                s = v / 1000.0 if v > 1e11 else v
+                now_epoch = time.time()
+                if (now_epoch - 60.0) <= s <= (now_epoch + 5.0):
+                    sent_at_val = s
             except (ValueError, TypeError):
                 pass
 

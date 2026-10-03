@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from snapland.infrastructure.jobs.retention import (
     RETENTION_LOCK_KEY,
+    RETENTION_LOCK_TTL,
     run_retention_job,
 )
 
@@ -21,15 +22,14 @@ async def test_retention_job_lock_contention():
 
     summary = await run_retention_job(session_factory_mock, redis_mock, "instance-1")
     assert summary == {}
-    redis_mock.set.assert_called_once_with(RETENTION_LOCK_KEY, "instance-1", nx=True, ex=3600)
+    redis_mock.set.assert_called_once_with(RETENTION_LOCK_KEY, "instance-1", nx=True, ex=RETENTION_LOCK_TTL)
     session_factory_mock.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_retention_job_executes_queries_and_releases_lock():
+async def test_retention_job_executes_queries_and_retains_lock():
     redis_mock = MagicMock()
     redis_mock.set = AsyncMock(return_value=True)
-    redis_mock.get = AsyncMock(return_value="instance-1")
     redis_mock.delete = AsyncMock()
 
     session_mock = MagicMock()
@@ -52,5 +52,25 @@ async def test_retention_job_executes_queries_and_releases_lock():
     assert summary["deleted_sessions"] == 5
     assert session_mock.execute.call_count == 4
 
-    # Verify lock release
-    redis_mock.delete.assert_called_once_with(RETENTION_LOCK_KEY)
+    # Verify lock is retained to guard daily deduplication window
+    redis_mock.delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_retention_job_releases_lock_on_failure():
+    redis_mock = MagicMock()
+    redis_mock.set = AsyncMock(return_value=True)
+    redis_mock.eval = AsyncMock()
+
+    session_mock = MagicMock()
+    session_mock.execute = AsyncMock(side_effect=RuntimeError("Database failure"))
+
+    session_factory_mock = MagicMock()
+    session_factory_mock.return_value.__aenter__ = AsyncMock(return_value=session_mock)
+    session_factory_mock.return_value.__aexit__ = AsyncMock(return_value=None)
+
+    with pytest.raises(RuntimeError, match="Database failure"):
+        await run_retention_job(session_factory_mock, redis_mock, "instance-1")
+
+    # Verify lock release attempted via eval/Lua
+    assert redis_mock.eval.call_count == 1

@@ -51,3 +51,6 @@ scaffold.py
 scaffold.ps1
 frontend/test-results/
 frontend/playwright-report/
+*.pem
+.dev_jwt_*
+

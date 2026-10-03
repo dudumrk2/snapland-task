@@ -18,7 +18,7 @@ from snapland.infrastructure.db.models import (
 logger = structlog.get_logger(__name__)
 
 RETENTION_LOCK_KEY = "snapland:job:retention:lock"
-RETENTION_LOCK_TTL = 3600  # 1 hour TTL fail-safe
+RETENTION_LOCK_TTL = 82800  # 23 hours deduplication window
 BATCH_SIZE = 1000
 
 
@@ -135,17 +135,29 @@ async def run_retention_job(
                     break
 
         logger.info("Data retention job completed successfully", **summary, instance_id=instance_id)
+        # Lock is intentionally retained for RETENTION_LOCK_TTL (23 hours) to prevent
+        # other cluster instances from re-executing the job on the same day.
         return summary
     except Exception as e:
         logger.error("Data retention job failed with error", error=str(e), instance_id=instance_id)
-        raise
-    finally:
+        # On failure, release lock atomically using Lua script so a retry is permitted
+        release_lua = """
+        if redis.call("get", KEYS[1]) == ARGV[1] then
+            return redis.call("del", KEYS[1])
+        else
+            return 0
+        end
+        """
         try:
-            val = await redis_client.get(RETENTION_LOCK_KEY)
-            if val == instance_id or (isinstance(val, bytes) and val.decode() == instance_id):
-                await redis_client.delete(RETENTION_LOCK_KEY)
-        except Exception as e:
-            logger.warning("Failed to release retention Redis lock", error=str(e))
+            if hasattr(redis_client, "eval"):
+                await redis_client.eval(release_lua, 1, RETENTION_LOCK_KEY, instance_id)
+            else:
+                val = await redis_client.get(RETENTION_LOCK_KEY)
+                if val == instance_id or (isinstance(val, bytes) and val.decode() == instance_id):
+                    await redis_client.delete(RETENTION_LOCK_KEY)
+        except Exception as rel_err:
+            logger.warning("Failed to release retention Redis lock on failure", error=str(rel_err))
+        raise
 
 
 def setup_retention_scheduler(
