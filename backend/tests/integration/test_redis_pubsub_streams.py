@@ -99,3 +99,28 @@ async def test_event_stream_publish_and_read_since(fake_redis):
     assert len(catchup3.events) == 1
     assert catchup3.events[0][1].type == "AREA_DELETED"
     assert catchup3.events[0][1].payload.areaId == area_id
+
+
+@pytest.mark.asyncio
+async def test_read_since_with_bytes_key_first_entry(fake_redis):
+    stream = RedisEventStream(fake_redis, stream_key="test:events_bytes")
+
+    # Mock xinfo_stream returning bytes keys to test fallback
+    original_xinfo = fake_redis.xinfo_stream
+
+    async def mock_xinfo(_key):
+        return {b"first-entry": [b"1000-0", {b"payload": b"{}"}]}
+
+    fake_redis.xinfo_stream = mock_xinfo
+
+    try:
+        # If last_id is older than first-entry (500-0 < 1000-0), must signal resync_required=True
+        catchup = await stream.read_since("500-0")
+        assert catchup.resync_required is True
+
+        # If last_id is newer than first-entry, resync_required is False
+        catchup2 = await stream.read_since("1500-0")
+        assert catchup2.resync_required is False
+    finally:
+        fake_redis.xinfo_stream = original_xinfo
+

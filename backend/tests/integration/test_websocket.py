@@ -280,3 +280,36 @@ def test_ws_max_connections_per_user_cap(ws_client):
                 ws.__exit__(None, None, None)
             except Exception:
                 pass
+
+
+def test_ws_catchup_replays_events_with_last_event_id(ws_client):
+    import datetime
+
+    from snapland.core.domain.area import Area
+    from snapland.core.domain.events import AreaCreated
+
+    client, sync_redis = ws_client
+    user_id = str(uuid.uuid4())
+    ticket = "ticket-replay-1"
+    sync_redis.set(f"ws_ticket:{ticket}", user_id, ex=30)
+
+    # Add an event to the stream
+    stream = app.state.event_stream
+    area = Area(
+        id=uuid.uuid4(), name="Replay Park", coordinates=[], area_km2=1.0, version=1,
+        created_by=uuid.UUID(user_id), last_edited_by=uuid.UUID(user_id),
+        created_at=datetime.datetime.now(datetime.UTC), updated_at=datetime.datetime.now(datetime.UTC)
+    )
+
+    loop = asyncio.new_event_loop()
+    loop.run_until_complete(stream.publish(AreaCreated(
+        area_id=area.id, created_at=area.created_at, created_by=area.created_by, area=area
+    )))
+    loop.close()
+
+    with client.websocket_connect(f"/ws?ticket={ticket}&lastEventId=0-0") as ws:
+        frame = json.loads(ws.receive_text())
+        types = [m["type"] for m in frame]
+        assert "PRESENCE_SNAPSHOT" in types
+        assert "AREA_SAVED" in types
+

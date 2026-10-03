@@ -216,6 +216,7 @@ async def dispatch_message(conn: Connection, raw_data: str, app_state: Any) -> N
 
     elif msg_type == "DRAW_COMMIT":
         shape_id = str(payload.get("shapeId", ""))[:64]
+        commit_shape_id: Optional[str] = shape_id if shape_id else None
         raw_name = payload.get("name")
         name = str(raw_name).strip()[:100] if raw_name else "Untitled Area"
         if not name:
@@ -239,7 +240,7 @@ async def dispatch_message(conn: Connection, raw_data: str, app_state: Any) -> N
             points.append(valid_pt)
 
         try:
-            req = CreateAreaRequest(name=name, coordinates=points, shape_id=shape_id)
+            req = CreateAreaRequest(name=name, coordinates=points, shape_id=commit_shape_id)
             if hasattr(app_state, "area_service") and app_state.area_service:
                 await app_state.area_service.create_area(req, conn.user_id)
             elif hasattr(app_state, "session_factory") and app_state.session_factory:

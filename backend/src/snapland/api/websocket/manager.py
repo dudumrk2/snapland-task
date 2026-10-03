@@ -107,6 +107,7 @@ class Connection:
         self.last_draw_stream_rate_limit_error: float = 0.0
         self.last_received_time: float = time.monotonic()
         self.seen_event_ids: collections.deque[str] = collections.deque(maxlen=500)
+        self._close_tasks: set[asyncio.Task[Any]] = set()
 
     async def enqueue(self, message: ServerMessage) -> None:
         if self.closed:
@@ -129,7 +130,9 @@ class Connection:
                 # Queue has only durables or protected messages
                 if is_durable or message.type in PROTECTED_TYPES:
                     self.closed = True
-                    asyncio.create_task(self.websocket.close(code=1013))
+                    close_task = asyncio.create_task(self.websocket.close(code=1013))
+                    self._close_tasks.add(close_task)
+                    close_task.add_done_callback(self._close_tasks.discard)
                     return
                 else:
                     # Drop incoming ephemeral message without closing socket

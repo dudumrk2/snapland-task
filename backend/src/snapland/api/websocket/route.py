@@ -120,28 +120,42 @@ async def websocket_endpoint(
                 logger.warning("Presence error on join", exc_info=e)
 
         # 6. Event stream catch-up / replay if lastEventId is provided
-        if lastEventId:
-            event_stream = getattr(websocket.app.state, "event_stream", None)
-            if event_stream:
-                # Cap replay at the queue bound so we never overfill it and close the socket.
-                # read_since returns resync_required=True when more than `limit` events exist.
-                REPLAY_LIMIT = conn.queue.maxsize - 1  # leave room for RESYNC_REQUIRED itself
-                try:
-                    catchup = await event_stream.read_since(lastEventId, limit=REPLAY_LIMIT)
-                    if catchup.resync_required:
-                        await conn.enqueue(
-                            ResyncRequiredMessage(payload=ResyncRequiredPayload(reason="stream_trimmed"))
-                        )
-                    else:
-                        for event_id, msg in catchup.events:
-                            if hasattr(msg, "eventId"):
-                                msg.eventId = event_id
-                            await conn.enqueue(msg)
-                except Exception as e:
-                    logger.warning("Catch-up replay error", exc_info=e)
+        last_replayed_id: Optional[str] = lastEventId
+        event_stream = getattr(websocket.app.state, "event_stream", None) if lastEventId else None
+        if event_stream and lastEventId:
+            # Cap replay at the queue bound so we never overfill it and close the socket.
+            # read_since returns resync_required=True when more than `limit` events exist.
+            REPLAY_LIMIT = conn.queue.maxsize - 1  # leave room for RESYNC_REQUIRED itself
+            try:
+                catchup = await event_stream.read_since(lastEventId, limit=REPLAY_LIMIT)
+                if catchup.resync_required:
+                    await conn.enqueue(
+                        ResyncRequiredMessage(payload=ResyncRequiredPayload(reason="stream_trimmed"))
+                    )
+                else:
+                    for event_id, msg in catchup.events:
+                        last_replayed_id = event_id
+                        if hasattr(msg, "eventId"):
+                            msg.eventId = event_id
+                        await conn.enqueue(msg)
+            except Exception as e:
+                logger.warning("Catch-up replay error", exc_info=e)
 
-        # 7. Register connection into live broadcast pool after catch-up is queued
+        # 7. Register connection into live broadcast pool after initial catch-up is queued
         active_manager.register(conn)
+
+        # 7b. Replay gap check: catch any events published between read_since and register()
+        # conn.seen_event_ids automatically de-duplicates any live broadcast events.
+        if event_stream and last_replayed_id and not conn.closed:
+            try:
+                gap_catchup = await event_stream.read_since(last_replayed_id, limit=conn.queue.maxsize - 1)
+                if not gap_catchup.resync_required:
+                    for event_id, msg in gap_catchup.events:
+                        if hasattr(msg, "eventId"):
+                            msg.eventId = event_id
+                        await conn.enqueue(msg)
+            except Exception as e:
+                logger.warning("Gap replay error", exc_info=e)
 
         # 8. Connection TTL Task: close with code 4401 after token lifespan
         ttl_seconds = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
