@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from sqlalchemy.exc import DBAPIError
 
 from snapland.core.domain.exceptions import (
     AuthError,
@@ -15,7 +16,6 @@ from snapland.core.domain.exceptions import (
     NotFoundError,
     ValidationError,
 )
-from sqlalchemy.exc import DBAPIError
 
 log = logging.getLogger(__name__)
 

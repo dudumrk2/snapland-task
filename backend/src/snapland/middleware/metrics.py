@@ -1,5 +1,5 @@
 import time
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 from fastapi import Request, Response
 from prometheus_client import (

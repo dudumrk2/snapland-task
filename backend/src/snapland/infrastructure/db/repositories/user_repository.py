@@ -41,4 +41,5 @@ class UserRepository(BaseRepository[UserModel], IUserRepository):
         )
         self.session.add(model)
         await asyncio.wait_for(self.session.flush(), timeout=30.0)
+        await asyncio.wait_for(self.session.commit(), timeout=30.0)
         return self._to_domain(model)

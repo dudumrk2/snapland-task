@@ -20,5 +20,23 @@ export default defineConfig({
     globals: true,
     environment: 'happy-dom',
     include: ['tests/unit/**/*.{test,spec}.{ts,tsx}'],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+      include: [
+        'src/hooks/useDrawing.ts',
+        'src/hooks/useWebSocket.ts',
+        'src/services/map/LayerManager.ts',
+        'src/services/websocket/WebSocketService.ts',
+        'src/store/areasStore.ts',
+        'src/store/collaborationStore.ts',
+        'src/utils/areaCalculation.ts',
+        'src/utils/escapeHtml.ts',
+        'src/utils/geoUtils.ts',
+      ],
+      thresholds: {
+        lines: 80,
+      },
+    },
   },
 });

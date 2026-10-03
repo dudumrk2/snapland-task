@@ -1,6 +1,7 @@
 import time
 import uuid
 
+import structlog
 from redis.asyncio import Redis
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -8,7 +9,6 @@ from starlette.responses import JSONResponse
 
 from snapland.core.interfaces.services import IRateLimiter, RateLimitResult
 from snapland.middleware.error_handler import RateLimitExceeded
-import structlog
 
 logger = structlog.get_logger(__name__)
 

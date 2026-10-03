@@ -1,9 +1,9 @@
 import asyncio
 
+import structlog
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
-from starlette.types import ASGIApp, Receive, Scope, Send
-import structlog
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 logger = structlog.get_logger(__name__)
 
@@ -32,7 +32,7 @@ class TimeoutMiddleware:
 
         response_started = False
 
-        async def send_wrapper(message: dict) -> None:
+        async def send_wrapper(message: Message) -> None:
             nonlocal response_started
             if message["type"] == "http.response.start":
                 response_started = True

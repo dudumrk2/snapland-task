@@ -9,8 +9,10 @@ services:
       POSTGRES_DB: snapland
     ports:
       - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U snapland"]
+      test: ["CMD-SHELL", "pg_isready -U snapland -d snapland"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -19,6 +21,8 @@ services:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -26,10 +30,10 @@ services:
       retries: 5
 
   migrate:
-    build: 
+    build:
       context: ../backend
       dockerfile: Dockerfile
-    command: alembic upgrade head
+    command: sh -c "until alembic upgrade head; do echo 'Waiting for database to be ready...'; sleep 2; done"
     depends_on:
       postgres:
         condition: service_healthy
@@ -37,7 +41,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://snapland:password@postgres:5432/snapland
 
   backend:
-    build: 
+    build:
       context: ../backend
       dockerfile: Dockerfile
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --ws-ping-interval 30 --ws-ping-timeout 10
@@ -49,19 +53,58 @@ services:
       redis:
         condition: service_healthy
     environment:
-      INSTANCE_ID: $HOSTNAME
       DATABASE_URL: postgresql+asyncpg://snapland:password@postgres:5432/snapland
       REDIS_URL: redis://redis:6379/0
-      JWT_PRIVATE_KEY: "dummy"
-      JWT_PUBLIC_KEY: "dummy"
+      ENVIRONMENT: development
+      ACCESS_TOKEN_EXPIRE_MINUTES: 15
+      REFRESH_TOKEN_EXPIRE_DAYS: 7
+      WS_ALLOWED_ORIGINS: "*"
+      MAX_AREA_KM2: "1000.0"
+      MAX_POLYGON_VERTICES: "1000"
+      JWT_PRIVATE_KEY: |
+        -----BEGIN PRIVATE KEY-----
+        MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC2GakyNdON6hKi
+        lwqz9vMDov4O6PBjL9pA+x5B4e6O3VUGM3TcBnOjD42H1/R9wRe0IHSuy0EVgw4U
+        9CCvcvr/zS9My56l6XAgbokeTdXO3xYfw1ozy1xi7DF5ZPdk7zTP9pgAL+o3jHK2
+        7HqWHGNLh4SDNelfKx3JcxdShHyAFTZtQ54T1hZnKAl7f9batctx53f4SdJvsW/0
+        dR7Fgmt3lkbeJLyYzOOIoyi2B/NOVqJ3Qti16O9za4w6gaFcDIuGW2CMoYYzBRNM
+        +l0QGP8Ere5TP1aiQr7aM4sk+iv8o7ff1oRDM5apafqvIhYNLZOE3L47H6/zwyyD
+        DHAKYg/jAgMBAAECggEAOEG0NilP2pNaP3WnHlLn35M+pq+K+DGD3ThXMCZS0zsI
+        ddp2uzSZC+KVqEZsp178ai7urUNor3Ml6g5DfMBqT5V9i92J/Rqhg7tyS/Ti3T6p
+        MJXi64ZjW8I5RJYPIdUOfULi0Yf79T5EAEQNWQubF23d38VLfBWvZZlTNrBsYArm
+        Wevla4nBAXT1flWwE2FGxvTqXS1ulFecNUCBHF7NMrg8LRI+QQBAmR55Qf5k2GjC
+        WZkFL8hxfgUY8AXgOyxJBfWN0VsBJqQY86h/L8esYVScWhctFrBOtsHpDKiDYBW3
+        tQ5xK0SazHIBk8VfNXFtvZf828Q1SGLBYWDcr6z0oQKBgQD/GwhlTrjJ3IKbCUCD
+        ifhhEvaj40dLgjkcxFD/f27Z8pApxLO0EgbD8ue/JiHzsD19Ln3KEL99cOLJaY9t
+        mdShKNzkXbraX3kJc1a1iUgNw2cq9EBG8S488ZaID10MYqGKWCQVZC69ox6AKzI/
+        3Tx7PdLqFAz0mwsd31sg/rAjIQKBgQC2vRpckQFzHcLv7NLqYXHYf6E5G5TChbwk
+        Kol8XjI/pf6PYtXpHyExEsnKUmussxyLLDbtStfPqMqJVZXw25hUwAXRgDYqOmqx
+        1LcL0quW6zHxN1zkL1O5IZYavaQnNk7hRQj8YCm2AYYtxkMv7nmS1kmbQcu3HA1D
+        SB09DxNWgwKBgFId+Y3i0UjpWoFdcQ7mkrVszUfkGUcNHCVObGRSOPSfSBip4M7O
+        Hq9kuYSmWbd/u8tX89XfnkRa2iXLfQfixLc72B8KrOMuaF/KaNb24eLMS6FgDnDH
+        ogKsIbCagXFDLozB4pugLAuPPnozbXFxXc6uD/6ZhbIXVnS/OS5dzYUBAoGBAIC9
+        awQJ2IacUgirxNABBK6tBA1yo/QDOdAU87Vdu3Lh5BxqWh+Zoc2r2eQi+t65dQOL
+        i8rTLoWK+d2VIUSFwKT8f1zgQciwTRiprqeyrNZvLkktYtETkp1bzx9ZuXsypJHK
+        DBGZQemK21gGVLFBBf9v3n119iozphhfhtHMfCg3AoGBAPCH2nTYMg2aJcKlCEQT
+        cJvXehAFL5K7tlQ8YpLwWj/y9xpKFhVpCsklYCtwxeaWui3Nt7aRa7B68ncokYuI
+        TAcgWERuF0axkDyt4t6XMr5UTB6uRs1A4vZGlvNM8VzbyYFUsION3JzqNwp0UZJ0
+        +ZDW8syo5BhxlS6oy4oQGXJf
+        -----END PRIVATE KEY-----
+      JWT_PUBLIC_KEY: |
+        -----BEGIN PUBLIC KEY-----
+        MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAthmpMjXTjeoSopcKs/bz
+        A6L+DujwYy/aQPseQeHujt1VBjN03AZzow+Nh9f0fcEXtCB0rstBFYMOFPQgr3L6
+        /80vTMuepelwIG6JHk3Vzt8WH8NaM8tcYuwxeWT3ZO80z/aYAC/qN4xytux6lhxj
+        S4eEgzXpXysdyXMXUoR8gBU2bUOeE9YWZygJe3/W2rXLced3+EnSb7Fv9HUexYJr
+        d5ZG3iS8mMzjiKMotgfzTlaid0LYtejvc2uMOoGhXAyLhltgjKGGMwUTTPpdEBj/
+        BK3uUz9WokK+2jOLJPor/KO339aEQzOWqWn6ryIWDS2ThNy+Ox+v88MsgwxwCmIP
+        4wIDAQAB
+        -----END PUBLIC KEY-----
 
   frontend:
     build:
-      context: ../frontend
-      dockerfile: Dockerfile
-    command: npm run dev -- --host 0.0.0.0
-    ports:
-      - "5173:5173"
+      context: ..
+      dockerfile: frontend/Dockerfile
     depends_on:
       - backend
 
@@ -72,8 +115,8 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - frontend
       - backend
+      - frontend
 
   prometheus:
     image: prom/prometheus:latest
@@ -89,6 +132,16 @@ services:
     ports:
       - "3000:3000"
     environment:
+      - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
     depends_on:
       - prometheus
+
+volumes:
+  postgres_data:
+  redis_data:

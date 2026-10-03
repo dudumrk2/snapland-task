@@ -1,7 +1,7 @@
 import uuid
 
-from fastapi import APIRouter, Cookie, Depends, Request, Response
 import structlog
+from fastapi import APIRouter, Cookie, Depends, Request, Response
 
 from snapland.api.deps import get_auth_service, get_rate_limiter
 from snapland.config import settings

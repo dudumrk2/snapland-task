@@ -4,7 +4,7 @@ import time
 import uuid
 from collections.abc import Sequence
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from geoalchemy2.functions import (

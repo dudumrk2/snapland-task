@@ -1,6 +1,5 @@
-import asyncio
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any
 
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler

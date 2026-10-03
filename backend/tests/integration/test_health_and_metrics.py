@@ -11,7 +11,8 @@ def test_health_live():
         assert resp.json() == {"status": "ok"}
 
 
-def test_health_ready(db_session):
+@pytest.mark.asyncio
+async def test_health_ready(db_session):
     with TestClient(app) as client:
         resp = client.get("/health/ready")
         assert resp.status_code == 200
@@ -23,7 +24,8 @@ def test_health_ready(db_session):
         assert data["version"] == "1.0.0"
 
 
-def test_health_db_spatial_index(db_session):
+@pytest.mark.asyncio
+async def test_health_db_spatial_index(db_session):
     with TestClient(app) as client:
         resp = client.get("/health/db")
         assert resp.status_code == 200

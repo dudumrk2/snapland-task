@@ -55,4 +55,6 @@ frontend/test-results/
 frontend/playwright-report/
 *.pem
 .dev_jwt_*
+coverage/
+frontend/coverage/
 

@@ -40,6 +40,7 @@ class SessionRepository(BaseRepository[SessionModel], ISessionRepository):
         )
         self.session.add(model)
         await asyncio.wait_for(self.session.flush(), timeout=30.0)
+        await asyncio.wait_for(self.session.commit(), timeout=30.0)
         return self._to_domain(model)
 
     async def get_by_token_hash(self, token_hash: str) -> Session | None:
