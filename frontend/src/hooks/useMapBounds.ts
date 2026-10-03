@@ -24,7 +24,7 @@ export function useMapBounds(
 ) {
   const [bounds, setBounds] = useState<BoundingBox | null>(null);
   const [zoom, setZoom] = useState<number>(13);
-  const timerRef = useRef<any>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Store options in a ref so inline option objects don't trigger re-renders or reset timers
   const optionsRef = useRef(options);

@@ -10,7 +10,7 @@ export interface CollaborationLayerProps {
 export const CollaborationLayer: React.FC<CollaborationLayerProps> = ({
   map,
 }) => {
-  const { remoteCursors, remoteShapes } = useCollaborationStore();
+  const { remoteCursors, remoteShapes, connectionState } = useCollaborationStore();
   const cursorsGroupRef = useRef<L.LayerGroup | null>(null);
   const shapesGroupRef = useRef<L.LayerGroup | null>(null);
 
@@ -37,6 +37,9 @@ export const CollaborationLayer: React.FC<CollaborationLayerProps> = ({
     if (!map || !cursorsGroupRef.current) return;
     const group = cursorsGroupRef.current;
     group.clearLayers();
+
+    // Disable remote cursors when degraded in polling mode
+    if (connectionState === 'polling') return;
 
     const now = Date.now();
     const CURSOR_TTL_MS = 30000; // Drop cursors older than 30s
@@ -85,13 +88,16 @@ export const CollaborationLayer: React.FC<CollaborationLayerProps> = ({
 
       group.addLayer(marker);
     });
-  }, [map, remoteCursors]);
+  }, [map, remoteCursors, connectionState]);
 
   // Render Remote Shapes
   useEffect(() => {
     if (!map || !shapesGroupRef.current) return;
     const group = shapesGroupRef.current;
     group.clearLayers();
+
+    // In degraded polling mode, disable remote previews (HLD §9.7 / Task 8)
+    if (connectionState === 'polling') return;
 
     Object.values(remoteShapes).forEach((shape) => {
       if (!shape.points || shape.points.length < 2) return;
@@ -111,7 +117,7 @@ export const CollaborationLayer: React.FC<CollaborationLayerProps> = ({
 
       group.addLayer(polyline);
     });
-  }, [map, remoteShapes]);
+  }, [map, remoteShapes, connectionState]);
 
   return null;
 };

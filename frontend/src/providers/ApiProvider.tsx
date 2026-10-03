@@ -5,6 +5,9 @@ import type { IWebSocketService } from '../api/interfaces/IWebSocketService';
 import { mockAreaApi } from '../api/mock/mockAreaApi';
 import { mockAuthApi } from '../api/mock/mockAuthApi';
 import { mockWebSocketService } from '../api/mock/mockWebSocketService';
+import { realAreaApi } from '../api/http/areaApi';
+import { realAuthApi } from '../api/http/authApi';
+import { realWebSocketService } from '../services/websocket/WebSocketService';
 
 export interface ApiContextValue {
   areaApi: IAreaApi;
@@ -21,11 +24,17 @@ export interface ApiProviderProps {
   wsService?: IWebSocketService;
 }
 
+const isMock = import.meta.env.VITE_USE_MOCK_API === 'true';
+
+const defaultAreaApi = isMock ? mockAreaApi : realAreaApi;
+const defaultAuthApi = isMock ? mockAuthApi : realAuthApi;
+const defaultWsService = isMock ? mockWebSocketService : realWebSocketService;
+
 export const ApiProvider: React.FC<ApiProviderProps> = ({
   children,
-  areaApi = mockAreaApi,
-  authApi = mockAuthApi,
-  wsService = mockWebSocketService,
+  areaApi = defaultAreaApi,
+  authApi = defaultAuthApi,
+  wsService = defaultWsService,
 }) => {
   const value: ApiContextValue = {
     areaApi,
@@ -43,3 +52,5 @@ export const useApi = (): ApiContextValue => {
   }
   return context;
 };
+
+export const useApiContext = useApi;

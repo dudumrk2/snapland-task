@@ -9,6 +9,7 @@ export interface AreaConflict {
     version: number;
   };
   currentArea: Area;
+  deletedOnServer?: boolean;
 }
 
 export interface AreasState {

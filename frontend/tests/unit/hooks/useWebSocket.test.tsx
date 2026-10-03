@@ -1,6 +1,6 @@
 import React from 'react';
-import { describe, it, expect, beforeEach } from 'vitest';
-import { renderHook, act, waitFor } from '@testing-library/react';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { renderHook, act } from '@testing-library/react';
 import { useWebSocket } from '../../../src/hooks/useWebSocket';
 import { ApiProvider } from '../../../src/providers/ApiProvider';
 import { MockWebSocketService } from '../../../src/api/mock/mockWebSocketService';
@@ -17,25 +17,28 @@ describe('useWebSocket', () => {
   );
 
   beforeEach(() => {
+    vi.useFakeTimers();
     mockWsService = new MockWebSocketService();
     mockAuthApi = new MockAuthApi();
   });
 
-  it('connects and receives presence snapshot', async () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('connects and receives presence snapshot deterministically', async () => {
     const { result } = renderHook(() => useWebSocket(true), { wrapper });
 
-    // Use waitFor to avoid race condition with MockAuthApi latency + MockWebSocketService connect delay
-    await waitFor(
-      () => {
-        expect(result.current.connectionState).toBe('connected');
-      },
-      { timeout: 500 }
-    );
+    // Advance fake timers to resolve mock ticket acquisition and connect delay
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
 
+    expect(result.current.connectionState).toBe('connected');
     expect(result.current.presenceUsers.length).toBeGreaterThan(0);
   });
 
-  it('throttles cursor movements to max 10 Hz', () => {
+  it('throttles cursor movements to max 10 Hz and permits movements after 100ms window', async () => {
     const { result } = renderHook(() => useWebSocket(false), { wrapper });
 
     act(() => {
@@ -44,8 +47,21 @@ describe('useWebSocket', () => {
       result.current.sendCursorMove({ lat: 32.02, lng: 34.82 });
     });
 
-    const cursorMessages = mockWsService.sentMessages.filter((m) => m.type === 'CURSOR_MOVE');
+    let cursorMessages = mockWsService.sentMessages.filter((m) => m.type === 'CURSOR_MOVE');
     expect(cursorMessages).toHaveLength(1);
     expect(cursorMessages[0].payload).toEqual({ lat: 32.0, lng: 34.8 });
+
+    // Advance time past 100ms throttle interval
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+    });
+
+    act(() => {
+      result.current.sendCursorMove({ lat: 32.05, lng: 34.85 });
+    });
+
+    cursorMessages = mockWsService.sentMessages.filter((m) => m.type === 'CURSOR_MOVE');
+    expect(cursorMessages).toHaveLength(2);
+    expect(cursorMessages[1].payload).toEqual({ lat: 32.05, lng: 34.85 });
   });
 });

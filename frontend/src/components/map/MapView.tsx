@@ -11,6 +11,7 @@ import { useDrawing } from '../../hooks/useDrawing';
 import { useMapBounds } from '../../hooks/useMapBounds';
 import { useAreas } from '../../hooks/useAreas';
 import { useWebSocket } from '../../hooks/useWebSocket';
+import { useApi } from '../../providers/ApiProvider';
 
 export interface MapViewProps {
   drawingController: ReturnType<typeof useDrawing>;
@@ -55,20 +56,56 @@ export const MapView: React.FC<MapViewProps> = ({
 
     setMapInstance(map);
     setLayerManager(lm);
+    if (typeof window !== 'undefined') {
+      window.snaplandMap = map;
+    }
 
     return () => {
+      if (typeof window !== 'undefined') {
+        delete window.snaplandMap;
+      }
       lm.destroy();
       map.remove();
     };
   }, []);
 
+  const { wsService } = useApi();
+  const { connectionState } = useWebSocket();
+
   // Track map bounds and refetch areas
-  useMapBounds(mapInstance, {
-    onBoundsChange: (bounds, zoom) => {
-      fetchAreasInBounds(bounds, zoom);
+  const { bounds, zoom } = useMapBounds(mapInstance, {
+    onBoundsChange: (b, z) => {
+      fetchAreasInBounds(b, z);
     },
     debounceMs: 250,
   });
+
+  const boundsRef = useRef(bounds);
+  boundsRef.current = bounds;
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+
+  // Degraded mode (polling): refetch viewport every 5s (Task 8 / HLD §9.7)
+  useEffect(() => {
+    if (connectionState !== 'polling') return;
+
+    const interval = setInterval(() => {
+      if (boundsRef.current) {
+        fetchAreasInBounds(boundsRef.current, zoomRef.current);
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [connectionState, fetchAreasInBounds]);
+
+  // RESYNC_REQUIRED: notify useAreas to refetch viewport over HTTP (Task 3 / HLD §9.7)
+  useEffect(() => {
+    return wsService.on('RESYNC_REQUIRED', () => {
+      if (boundsRef.current) {
+        fetchAreasInBounds(boundsRef.current, zoomRef.current);
+      }
+    });
+  }, [wsService, fetchAreasInBounds]);
 
   // Track cursor movement for collaborative presence
   useEffect(() => {
@@ -102,7 +139,7 @@ export const MapView: React.FC<MapViewProps> = ({
       {mapInstance && (
         <>
           <BaseLayerControl layerManager={layerManager} onToast={onToast} />
-          <AreaOverlay map={mapInstance} />
+          <AreaOverlay map={mapInstance} isDrawing={drawingController.isDrawing} />
           <DrawingLayer map={mapInstance} drawingController={drawingController} />
           <VertexEditor map={mapInstance} />
           <CollaborationLayer map={mapInstance} />

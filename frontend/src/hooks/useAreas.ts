@@ -78,11 +78,15 @@ export function useAreas() {
   );
 
   const createArea = useCallback(
-    async (name: string, coordinates: Coordinate[]) => {
+    async (name: string, coordinates: Coordinate[], shapeId?: string) => {
       setSaving(true);
       setError(null);
       try {
-        const newArea = await areaApi.createArea({ name, coordinates });
+        const newArea = await areaApi.createArea({
+          name,
+          coordinates,
+          shapeId,
+        });
         addArea(newArea);
         selectArea(newArea.id);
         return newArea;
@@ -108,18 +112,17 @@ export function useAreas() {
         return updated;
       } catch (err: unknown) {
         if (err instanceof ConflictError) {
-          const localArea = areas.find((a) => a.id === id);
-          if (localArea) {
-            setConflict({
-              localArea: {
-                id,
-                name: req.name ?? localArea.name,
-                coordinates: req.coordinates ?? localArea.coordinates,
-                version: req.version,
-              },
-              currentArea: err.currentArea,
-            });
-          }
+          const currentAreas = useAreasStore.getState().areas;
+          const localArea = currentAreas.find((a) => a.id === id);
+          setConflict({
+            localArea: {
+              id,
+              name: req.name ?? localArea?.name ?? err.currentArea.name,
+              coordinates: req.coordinates ?? localArea?.coordinates ?? err.currentArea.coordinates,
+              version: req.version,
+            },
+            currentArea: err.currentArea,
+          });
         }
         const msg = err instanceof Error ? err.message : 'Failed to update area';
         setError(msg);
@@ -128,7 +131,7 @@ export function useAreas() {
         setSaving(false);
       }
     },
-    [areaApi, areas, updateStoreArea, setConflict, setSaving, setError]
+    [areaApi, updateStoreArea, setConflict, setSaving, setError]
   );
 
   const deleteArea = useCallback(

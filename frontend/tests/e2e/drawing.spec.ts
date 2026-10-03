@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { loginTestUser } from './authHelper';
 
 test.describe('Drawing Flow', () => {
   test('draw a polygon and save', async ({ page }) => {
-    await page.goto('/');
+    await loginTestUser(page);
 
     // Start drawing
     await page.getByRole('button', { name: /draw polygon/i }).click();
@@ -24,7 +25,7 @@ test.describe('Drawing Flow', () => {
     const areaList = page.locator('.area-list');
     await expect(areaList).toContainText('Test Polygon');
     // Ensure it has server km2 (not the approx ≈)
-    await expect(areaList.locator('text=km²')).toBeVisible();
+    await expect(areaList.locator('text=km²').first()).toBeVisible();
     await expect(areaList.locator('text=≈')).not.toBeVisible();
   });
 });

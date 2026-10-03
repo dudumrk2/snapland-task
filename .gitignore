@@ -49,6 +49,8 @@ Thumbs.db
 # Scaffolds & Temp
 scaffold.py
 scaffold.ps1
+start_backend.py
+backend/start_backend.py
 frontend/test-results/
 frontend/playwright-report/
 *.pem

@@ -26,11 +26,16 @@ export function setupWebSocketSubscriptions(
   });
 
   const unsubJoined = wsService.on('USER_JOINED', (payload) => {
-    useCollaborationStore.getState().addPresenceUser(payload);
+    const user = 'user' in payload ? payload.user : payload;
+    if (user && user.userId) {
+      useCollaborationStore.getState().addPresenceUser(user);
+    }
   });
 
   const unsubLeft = wsService.on('USER_LEFT', (payload) => {
-    useCollaborationStore.getState().removePresenceUser(payload.userId);
+    if (payload.userId) {
+      useCollaborationStore.getState().removePresenceUser(payload.userId);
+    }
   });
 
   // 3. Cursors & drawing
@@ -62,24 +67,58 @@ export function setupWebSocketSubscriptions(
       editedCoordinates
     ) {
       const local = areas.find((a) => a.id === editingAreaId);
-      if (local) {
-        areasState.setConflict({
-          localArea: {
-            id: local.id,
-            name: local.name,
-            coordinates: editedCoordinates,
-            version: local.version,
-          },
-          currentArea: payload.area,
-        });
-      }
+      areasState.setConflict({
+        localArea: {
+          id: editingAreaId,
+          name: local?.name ?? payload.area.name,
+          coordinates: editedCoordinates,
+          version: local?.version ?? payload.area.version - 1,
+        },
+        currentArea: payload.area,
+      });
     }
     areasState.updateArea(payload.area);
     if (eventId) useCollaborationStore.getState().setLastEventId(eventId);
   });
 
   const unsubAreaDeleted = wsService.on('AREA_DELETED', (payload, eventId) => {
-    useAreasStore.getState().deleteArea(payload.areaId);
+    const areasState = useAreasStore.getState();
+    const { editingAreaId, editedCoordinates, areas } = areasState;
+
+    // Proactive conflict detection on deletion (HLD §14)
+    if (
+      options.enableProactiveConflict &&
+      editingAreaId === payload.areaId &&
+      editedCoordinates
+    ) {
+      const local = areas.find((a) => a.id === editingAreaId);
+      areasState.setConflict({
+        localArea: {
+          id: payload.areaId,
+          name: local?.name ?? 'Deleted Area',
+          coordinates: editedCoordinates,
+          version: local?.version ?? 1,
+        },
+        // Synthetic Area representing "deleted on server". Callers can detect
+        // this case by checking that currentArea.name ends with '(Deleted)' or
+        // by comparing currentArea.version to localArea.version + 1.
+        // Empty-string sentinels are used for fields unavailable after deletion.
+        currentArea: {
+          id: payload.areaId,
+          name: `${local?.name || 'Area'} (Deleted on server)`,
+          coordinates: local?.coordinates ?? editedCoordinates,
+          areaKm2: local?.areaKm2 ?? 0,
+          version: (local?.version ?? 1) + 1,
+          createdBy: local?.createdBy ?? '',
+          lastEditedBy: '',
+          createdAt: local?.createdAt ?? '',
+          updatedAt: '',
+        },
+        deletedOnServer: true,
+      });
+    }
+
+    areasState.deleteArea(payload.areaId);
     if (eventId) useCollaborationStore.getState().setLastEventId(eventId);
   });
 
