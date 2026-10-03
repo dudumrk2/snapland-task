@@ -86,7 +86,7 @@ export class MockAuthApi implements IAuthApi {
     return tokenResponse;
   }
 
-  async register(req: RegisterRequest): Promise<TokenResponse> {
+  async register(req: RegisterRequest): Promise<void> {
     await this.delay();
     const emailKey = req.email.toLowerCase().trim();
     if (this.users.has(emailKey)) {
@@ -101,25 +101,6 @@ export class MockAuthApi implements IAuthApi {
       displayName: req.displayName.trim() || 'User',
     };
     this.users.set(emailKey, newUser);
-
-    const tokenResponse: TokenResponse = {
-      accessToken: `mock-jwt-${id}-${Date.now()}`,
-      tokenType: 'Bearer',
-      expiresIn: 900,
-    };
-
-    if (typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.removeItem(STORAGE_LOGGED_OUT_KEY);
-      window.localStorage.setItem(
-        STORAGE_SESSION_KEY,
-        JSON.stringify({
-          user: { id: newUser.id, email: newUser.email, displayName: newUser.displayName },
-          accessToken: tokenResponse.accessToken,
-        })
-      );
-    }
-
-    return tokenResponse;
   }
 
   async refresh(): Promise<TokenResponse> {

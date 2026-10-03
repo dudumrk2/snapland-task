@@ -13,6 +13,7 @@ import { showToast } from '../../utils/toastService';
 import { mapServerAreaToArea } from '../../api/http/client';
 
 const BACKOFF_STEPS = [1000, 2000, 4000, 8000, 16000, 30000];
+export const STABILITY_WINDOW_MS = 10_000;
 
 type GenericHandler = (payload: unknown, eventId?: string) => void;
 
@@ -216,7 +217,7 @@ export class RealWebSocketService implements IWebSocketService {
             this.consecutiveFailures = 0;
             this.consecutiveAuthFailures = 0;
           }
-        }, 10000);
+        }, STABILITY_WINDOW_MS);
       };
 
       ws.onmessage = (event: MessageEvent) => {
@@ -224,8 +225,9 @@ export class RealWebSocketService implements IWebSocketService {
         this.handleMessage(event.data);
       };
 
-      ws.onerror = () => {
+      ws.onerror = (event: Event) => {
         // ws.onclose will be fired immediately afterwards
+        console.warn('WebSocket error observed:', event);
       };
 
       ws.onclose = (event: CloseEvent) => {

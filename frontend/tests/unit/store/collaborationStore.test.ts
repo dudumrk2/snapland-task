@@ -86,4 +86,79 @@ describe('collaborationStore', () => {
     expect(state.remoteShapes).toEqual({});
     expect(state.presenceUsers).toEqual([]);
   });
+
+  it('deduplicates users in addPresenceUser', () => {
+    const store = useCollaborationStore.getState();
+    store.addPresenceUser({ userId: 'u1', displayName: 'User 1', color: '#111' });
+    expect(useCollaborationStore.getState().presenceUsers).toHaveLength(1);
+
+    // Add again with same userId
+    store.addPresenceUser({ userId: 'u1', displayName: 'User 1 Renamed', color: '#111' });
+    expect(useCollaborationStore.getState().presenceUsers).toHaveLength(1);
+    expect(useCollaborationStore.getState().presenceUsers[0].displayName).toBe('User 1');
+  });
+
+  it('handles remote draw start, delta updates, gap detection, and commit', () => {
+    const store = useCollaborationStore.getState();
+
+    // Start phase
+    store.handleRemoteDraw({
+      shapeId: 'remote-1',
+      userId: 'u1',
+      phase: 'start',
+      append: [{ lat: 32.0, lng: 34.8 }],
+    });
+
+    let shape = useCollaborationStore.getState().remoteShapes['remote-1'];
+    expect(shape).toBeDefined();
+    expect(shape.points).toHaveLength(1);
+
+    // Delta update with matching fromIndex (1)
+    store.handleRemoteDraw({
+      shapeId: 'remote-1',
+      userId: 'u1',
+      phase: 'update',
+      append: [{ lat: 32.0, lng: 34.9 }],
+      fromIndex: 1,
+    });
+
+    shape = useCollaborationStore.getState().remoteShapes['remote-1'];
+    expect(shape.points).toHaveLength(2);
+
+    // Delta update with gap (fromIndex 5 when current length is 2) - should be ignored
+    store.handleRemoteDraw({
+      shapeId: 'remote-1',
+      userId: 'u1',
+      phase: 'update',
+      append: [{ lat: 32.5, lng: 34.5 }],
+      fromIndex: 5,
+    });
+
+    shape = useCollaborationStore.getState().remoteShapes['remote-1'];
+    expect(shape.points).toHaveLength(2); // unchanged
+
+    // Commit phase replaces points
+    store.handleRemoteDraw({
+      shapeId: 'remote-1',
+      userId: 'u1',
+      phase: 'commit',
+      append: [
+        { lat: 32.0, lng: 34.8 },
+        { lat: 32.0, lng: 34.9 },
+        { lat: 32.1, lng: 34.85 },
+      ],
+    });
+
+    shape = useCollaborationStore.getState().remoteShapes['remote-1'];
+    expect(shape.points).toHaveLength(3);
+
+    // Cancel phase removes shape
+    store.handleRemoteDraw({
+      shapeId: 'remote-1',
+      userId: 'u1',
+      phase: 'cancel',
+    });
+
+    expect(useCollaborationStore.getState().remoteShapes['remote-1']).toBeUndefined();
+  });
 });

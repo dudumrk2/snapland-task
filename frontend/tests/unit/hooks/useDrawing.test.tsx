@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useDrawing, COMMIT_TIMEOUT_MS } from '../../../src/hooks/useDrawing';
+import { useDrawing, COMMIT_TIMEOUT_MS, DrawingAbortedError } from '../../../src/hooks/useDrawing';
 import { ApiProvider } from '../../../src/providers/ApiProvider';
 import { MockAreaApi } from '../../../src/api/mock/mockAreaApi';
 import { MockWebSocketService } from '../../../src/api/mock/mockWebSocketService';
@@ -529,5 +529,40 @@ describe('useDrawing', () => {
       });
       await firstPromise;
     });
+  });
+
+  it('rejects saveDrawing when points have less than 3 unique vertices', async () => {
+    const { result } = renderHook(() => useDrawing(), { wrapper });
+
+    act(() => {
+      result.current.startDrawing();
+      result.current.addPoint({ lat: 32.0, lng: 34.8 });
+      result.current.addPoint({ lat: 32.0, lng: 34.8 });
+    });
+
+    await expect(result.current.saveDrawing('Too Few Vertices')).rejects.toThrow(
+      'Insufficient vertices to save polygon'
+    );
+  });
+
+  it('rejects saveDrawing with DrawingAbortedError when hook unmounts during save', async () => {
+    let savePromise: Promise<unknown>;
+    const { result, unmount } = renderHook(() => useDrawing(), { wrapper });
+
+    act(() => {
+      result.current.startDrawing();
+      result.current.addPoint({ lat: 32.0, lng: 34.8 });
+      result.current.addPoint({ lat: 32.0, lng: 34.9 });
+      result.current.addPoint({ lat: 32.1, lng: 34.85 });
+      result.current.finishDrawing();
+    });
+
+    act(() => {
+      savePromise = result.current.saveDrawing('Unmount Area');
+    });
+
+    unmount();
+
+    await expect(savePromise!).rejects.toThrow(DrawingAbortedError);
   });
 });

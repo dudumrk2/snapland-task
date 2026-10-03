@@ -53,18 +53,12 @@ export class RealAuthApi implements IAuthApi {
     return tokenResponse;
   }
 
-  async register(req: RegisterRequest): Promise<TokenResponse> {
+  async register(req: RegisterRequest): Promise<void> {
     await apiClient.post<unknown>('/api/v1/auth/register', {
       email: req.email.trim(),
       password: req.password,
       display_name: req.displayName.trim(),
     });
-
-    return {
-      accessToken: '',
-      tokenType: 'Bearer',
-      expiresIn: 900,
-    };
   }
 
   async refresh(): Promise<TokenResponse> {

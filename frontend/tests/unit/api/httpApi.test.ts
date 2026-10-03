@@ -192,4 +192,64 @@ describe('HTTP API & Mapping', () => {
     expect(req1.headers.Authorization).toBe('Bearer refreshed-token-abc');
     expect(req2.headers.Authorization).toBe('Bearer refreshed-token-abc');
   });
+
+  it('calls /auth/register with user credentials and resolves void', async () => {
+    const postSpy = vi.spyOn(apiClient, 'post').mockResolvedValueOnce({
+      data: { id: 'new-user-1', email: 'jane@example.com', display_name: 'Jane' },
+    });
+
+    const authApi = new RealAuthApi();
+    await expect(
+      authApi.register({
+        email: 'jane@example.com',
+        password: 'password123',
+        displayName: 'Jane',
+      })
+    ).resolves.toBeUndefined();
+
+    expect(postSpy).toHaveBeenCalledWith('/api/v1/auth/register', {
+      email: 'jane@example.com',
+      password: 'password123',
+      display_name: 'Jane',
+    });
+  });
+
+  it('throws ConflictError with currentArea and currentVersion on 409 response', async () => {
+    const rejectedHandler = (apiClient.interceptors.response as unknown as {
+      handlers: Array<{ rejected: (err: unknown) => Promise<unknown> }>;
+    }).handlers[0].rejected;
+
+    const error409 = {
+      config: { url: '/api/v1/areas/123' },
+      response: {
+        status: 409,
+        data: {
+          details: {
+            current_area: {
+              id: '123',
+              name: 'Conflicted Area',
+              coordinates: [{ lat: 32.0, lng: 34.8 }],
+              area_km2: 5.5,
+              version: 3,
+              created_by: 'u1',
+              last_edited_by: 'u2',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-02T00:00:00Z',
+            },
+            current_version: 3,
+          },
+        },
+      },
+    };
+
+    try {
+      await rejectedHandler(error409);
+      expect.fail('Expected ConflictError to be thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(ConflictError);
+      const conflict = err as ConflictError;
+      expect(conflict.currentVersion).toBe(3);
+      expect(conflict.currentArea.name).toBe('Conflicted Area');
+    }
+  });
 });

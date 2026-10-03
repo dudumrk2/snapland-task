@@ -50,6 +50,9 @@ export function useDrawing(options?: UseDrawingOptions) {
     timeoutId: ReturnType<typeof setTimeout>;
   } | null>(null);
   const isSavingRef = useRef<boolean>(false);
+  const isMountedRef = useRef<boolean>(true);
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
   // Compute live approximate area
   const previewPoints =
@@ -173,10 +176,10 @@ export function useDrawing(options?: UseDrawingOptions) {
     setCursorPoint(null);
     setIsSaveModalOpen(true);
 
-    if (options?.onPolygonCreated) {
-      options.onPolygonCreated(clean);
+    if (optionsRef.current?.onPolygonCreated) {
+      optionsRef.current.onPolygonCreated(clean);
     }
-  }, [flushDeltaUpdate, options]);
+  }, [flushDeltaUpdate]);
 
   const cancelDrawing = useCallback(() => {
     // If a commit is in flight, do not cancel while server is processing it
@@ -214,7 +217,9 @@ export function useDrawing(options?: UseDrawingOptions) {
       }
 
       const clean = removeDuplicateConsecutive(points);
-      if (clean.length < 3) return;
+      if (clean.length < 3) {
+        throw new Error('Insufficient vertices to save polygon');
+      }
 
       isSavingRef.current = true;
       const currentShapeId = shapeIdRef.current || undefined;
@@ -262,6 +267,10 @@ export function useDrawing(options?: UseDrawingOptions) {
             createArea(name, clean, currentShapeId)
               .then((createdArea) => {
                 isSavingRef.current = false;
+                if (!isMountedRef.current) {
+                  reject(new DrawingAbortedError('Component unmounted'));
+                  return;
+                }
                 setIsSaveModalOpen(false);
                 isDrawingRef.current = false;
                 setIsDrawing(false);
@@ -279,6 +288,9 @@ export function useDrawing(options?: UseDrawingOptions) {
       } else {
         try {
           const createdArea = await createArea(name, clean, currentShapeId);
+          if (!isMountedRef.current) {
+            throw new DrawingAbortedError('Component unmounted');
+          }
           setIsSaveModalOpen(false);
           isDrawingRef.current = false;
           setIsDrawing(false);
@@ -309,11 +321,13 @@ export function useDrawing(options?: UseDrawingOptions) {
         }
         shapeIdRef.current = null;
         submittedShapeIdsRef.current.clear();
-        isDrawingRef.current = false;
-        setIsDrawing(false);
-        setPoints([]);
-        setIsSaveModalOpen(false);
-        selectArea(payload.area.id);
+        if (isMountedRef.current) {
+          isDrawingRef.current = false;
+          setIsDrawing(false);
+          setPoints([]);
+          setIsSaveModalOpen(false);
+          selectArea(payload.area.id);
+        }
       }
     });
 
@@ -347,7 +361,9 @@ export function useDrawing(options?: UseDrawingOptions) {
 
   // Clean up timers on unmount
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
+      isMountedRef.current = false;
       if (throttleTimerRef.current) {
         clearTimeout(throttleTimerRef.current);
         throttleTimerRef.current = null;
