@@ -10,6 +10,8 @@ def test_log_redaction_sensitive_keys():
         "ticket": "ticket-uuid-secret",
         "cookie": "session=abc",
         "authorization": "Bearer xyz",
+        "email": "user@example.com",
+        "display_name": "Test User",
         "user_id": "12345",
         "safe_key": "safe_value",
     }
@@ -23,6 +25,8 @@ def test_log_redaction_sensitive_keys():
     assert result["ticket"] == "[REDACTED]"
     assert result["cookie"] == "[REDACTED]"
     assert result["authorization"] == "[REDACTED]"
+    assert result["email"] == "[REDACTED]"
+    assert result["display_name"] == "[REDACTED]"
     # Ensure IDs and safe keys are preserved
     assert result["user_id"] == "12345"
     assert result["safe_key"] == "safe_value"

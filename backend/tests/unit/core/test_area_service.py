@@ -127,12 +127,26 @@ async def test_update_area_conflict(area_service, mock_repo):
 async def test_delete_area(area_service, mock_repo, mock_cache, mock_events):
     area_id = uuid.uuid4()
     user_id = uuid.uuid4()
+    mock_repo.soft_delete.return_value = True
     
     await area_service.delete_area(area_id, user_id)
     
     mock_repo.soft_delete.assert_called_once_with(area_id, user_id)
     mock_cache.incr.assert_called_once_with("areas:epoch")
     mock_events.publish.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_delete_area_not_found(area_service, mock_repo, mock_cache, mock_events):
+    area_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    mock_repo.soft_delete.return_value = False
+    
+    with pytest.raises(NotFoundError):
+        await area_service.delete_area(area_id, user_id)
+        
+    mock_repo.soft_delete.assert_called_once_with(area_id, user_id)
+    mock_cache.incr.assert_not_called()
+    mock_events.publish.assert_not_called()
 
 @pytest.mark.asyncio
 async def test_get_area_success(area_service, mock_repo):

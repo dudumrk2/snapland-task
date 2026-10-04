@@ -54,8 +54,8 @@ def censor_and_normalize(logger, method_name, event_dict):
     if "user_id" not in event_dict:
         event_dict["user_id"] = None
 
-    # 4. Redact sensitive patterns (passwords, tokens, tickets, cookies, auth)
-    sensitive_patterns = ("password", "token", "ticket", "cookie", "secret", "authorization")
+    # 4. Redact sensitive patterns (passwords, tokens, tickets, cookies, auth, PII)
+    sensitive_patterns = ("password", "token", "ticket", "cookie", "secret", "authorization", "email", "display_name")
     for key in list(event_dict.keys()):
         k_lower = key.lower()
         if any(s in k_lower for s in sensitive_patterns) and not key.endswith("_id") and key != "last_event_id":

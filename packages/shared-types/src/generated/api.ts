@@ -274,6 +274,8 @@ export interface components {
             name: string;
             /** Coordinates */
             coordinates: components["schemas"]["Coordinate"][];
+            /** Shape Id */
+            shape_id?: string | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -284,10 +286,40 @@ export interface components {
         HealthResponse: {
             /** Status */
             status: string;
-            /** Db */
+            /**
+             * Db
+             * @default ok
+             */
             db: string;
-            /** Redis */
+            /**
+             * Database
+             * @default ok
+             */
+            database: string;
+            /**
+             * Redis
+             * @default ok
+             */
             redis: string;
+            /**
+             * Instance Id
+             * @default
+             */
+            instance_id: string;
+            /**
+             * Timestamp
+             * @default
+             */
+            timestamp: string;
+            /**
+             * Version
+             * @default 1.0.0
+             */
+            version: string;
+            /** Background Tasks */
+            background_tasks?: {
+                [key: string]: boolean;
+            } | null;
         };
         /** LoginRequest */
         LoginRequest: {
@@ -573,6 +605,7 @@ export interface operations {
                 /** @description minLng,minLat,maxLng,maxLat */
                 bounds: string;
                 zoom?: number | null;
+                /** @description Max areas to return (1-1000) */
                 limit?: number;
             };
             header?: never;

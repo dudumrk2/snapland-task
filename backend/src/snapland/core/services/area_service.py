@@ -196,7 +196,9 @@ class AreaService(IAreaService):
 
     async def delete_area(self, area_id: uuid.UUID, user_id: uuid.UUID) -> None:
         logger.info("Deleting area", area_id=str(area_id), user_id=str(user_id))
-        await self.repo.soft_delete(area_id, user_id)
+        deleted = await self.repo.soft_delete(area_id, user_id)
+        if not deleted:
+            raise NotFoundError(f"Area {area_id} not found")
         await self.cache.incr("areas:epoch")
 
         try:

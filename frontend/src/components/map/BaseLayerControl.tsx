@@ -27,7 +27,7 @@ export const BaseLayerControl: React.FC<BaseLayerControlProps> = ({
       await layerManager.switchLayer(type);
       setActiveLayer(type);
       if (layerManager.isFallbackActive() && onToast) {
-        onToast('Satellite fallback to Esri World Imagery');
+        onToast('Satellite imagery unavailable, switched to Fallback (GovMap)');
       }
     } catch (err: any) {
       if (onToast) {

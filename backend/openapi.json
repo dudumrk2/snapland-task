@@ -1,1 +1,953 @@
-{"openapi": "3.1.0", "info": {"title": "Snapland API", "version": "0.1.0"}, "paths": {"/health/live": {"get": {"tags": ["health"], "summary": "Health Live", "operationId": "health_live_health_live_get", "responses": {"200": {"description": "Successful Response", "content": {"application/json": {"schema": {"title": "Response Health Live Health Live Get"}}}}}}}, "/health/ready": {"get": {"tags": ["health"], "summary": "Health Ready", "operationId": "health_ready_health_ready_get", "responses": {"200": {"description": "Successful Response", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HealthResponse"}}}}}}}, "/health/db": {"get": {"tags": ["health"], "summary": "Health Db", "description": "Verifies that the spatial index is used for viewport queries.", "operationId": "health_db_health_db_get", "responses": {"200": {"description": "Successful Response", "content": {"application/json": {"schema": {"title": "Response Health Db Health Db Get"}}}}}}}, "/api/v1/auth/register": {"post": {"tags": ["auth"], "summary": "Register", "operationId": "register_api_v1_auth_register_post", "requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/RegisterRequest"}}}, "required": true}, "responses": {"200": {"description": "Successful Response", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/User"}}}}, "422": {"description": "Validation Error", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}}}}}}, "/api/v1/auth/login": {"post": {"tags": ["auth"], "summary": "Login", "operationId": "login_api_v1_auth_login_post", "requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/LoginRequest"}}}, "required": true}, "responses": {"200": {"description": "Successful Response", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TokenResponse"}}}}, "422": {"description": "Validation Error", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}}}}}}, "/api/v1/auth/refresh": {"post": {"tags": ["auth"], "summary": "Refresh", "operationId": "refresh_api_v1_auth_refresh_post", "parameters": [{"name": "refresh_token", "in": "cookie", "required": false, "schema": {"type": "string", "title": "Refresh Token"}}], "responses": {"200": {"description": "Successful Response", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TokenResponse"}}}}, "422": {"description": "Validation Error", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}}}}}}, "/api/v1/auth/logout": {"post": {"tags": ["auth"], "summary": "Logout", "operationId": "logout_api_v1_auth_logout_post", "parameters": [{"name": "refresh_token", "in": "cookie", "required": false, "schema": {"type": "string", "title": "Refresh Token"}}], "responses": {"200": {"description": "Successful Response", "content": {"application/json": {"schema": {}}}}, "422": {"description": "Validation Error", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}}}}}}, "/api/v1/auth/ws-ticket": {"post": {"tags": ["auth"], "summary": "Ws Ticket", "operationId": "ws_ticket_api_v1_auth_ws_ticket_post", "responses": {"200": {"description": "Successful Response", "content": {"application/json": {"schema": {}}}}}}}, "/api/v1/areas": {"get": {"tags": ["areas"], "summary": "Get Areas", "operationId": "get_areas_api_v1_areas_get", "parameters": [{"name": "bounds", "in": "query", "required": true, "schema": {"type": "string", "description": "minLng,minLat,maxLng,maxLat", "title": "Bounds"}, "description": "minLng,minLat,maxLng,maxLat"}, {"name": "zoom", "in": "query", "required": false, "schema": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "Zoom"}}, {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "default": 500, "title": "Limit"}}], "responses": {"200": {"description": "Successful Response", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AreaPage"}}}}, "422": {"description": "Validation Error", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}}}}}, "post": {"tags": ["areas"], "summary": "Create Area", "operationId": "create_area_api_v1_areas_post", "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateAreaRequest"}}}}, "responses": {"200": {"description": "Successful Response", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Area"}}}}, "422": {"description": "Validation Error", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}}}}}}, "/api/v1/areas/{area_id}": {"get": {"tags": ["areas"], "summary": "Get Area", "operationId": "get_area_api_v1_areas__area_id__get", "parameters": [{"name": "area_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid", "title": "Area Id"}}], "responses": {"200": {"description": "Successful Response", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Area"}}}}, "422": {"description": "Validation Error", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}}}}}, "put": {"tags": ["areas"], "summary": "Update Area", "operationId": "update_area_api_v1_areas__area_id__put", "parameters": [{"name": "area_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid", "title": "Area Id"}}], "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/UpdateAreaRequest"}}}}, "responses": {"200": {"description": "Successful Response", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Area"}}}}, "422": {"description": "Validation Error", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}}}}}, "delete": {"tags": ["areas"], "summary": "Delete Area", "operationId": "delete_area_api_v1_areas__area_id__delete", "parameters": [{"name": "area_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid", "title": "Area Id"}}], "responses": {"200": {"description": "Successful Response", "content": {"application/json": {"schema": {}}}}, "422": {"description": "Validation Error", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}}}}}}, "/api/v1/areas/{area_id}/history": {"get": {"tags": ["areas"], "summary": "Get History", "operationId": "get_history_api_v1_areas__area_id__history_get", "parameters": [{"name": "area_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid", "title": "Area Id"}}], "responses": {"200": {"description": "Successful Response", "content": {"application/json": {"schema": {}}}}, "422": {"description": "Validation Error", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}}}}}}, "/api/v1/users/me": {"get": {"tags": ["users"], "summary": "Get Me", "operationId": "get_me_api_v1_users_me_get", "responses": {"200": {"description": "Successful Response", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/User"}}}}}}}}, "components": {"schemas": {"Area": {"properties": {"id": {"type": "string", "format": "uuid", "title": "Id"}, "name": {"type": "string", "title": "Name"}, "coordinates": {"items": {"$ref": "#/components/schemas/Coordinate"}, "type": "array", "title": "Coordinates"}, "area_km2": {"type": "number", "title": "Area Km2"}, "version": {"type": "integer", "title": "Version"}, "created_by": {"type": "string", "format": "uuid", "title": "Created By"}, "last_edited_by": {"type": "string", "format": "uuid", "title": "Last Edited By"}, "created_at": {"type": "string", "format": "date-time", "title": "Created At"}, "updated_at": {"type": "string", "format": "date-time", "title": "Updated At"}}, "type": "object", "required": ["id", "name", "coordinates", "area_km2", "version", "created_by", "last_edited_by", "created_at", "updated_at"], "title": "Area"}, "AreaPage": {"properties": {"areas": {"items": {"$ref": "#/components/schemas/Area"}, "type": "array", "title": "Areas"}, "truncated": {"type": "boolean", "title": "Truncated"}}, "type": "object", "required": ["areas", "truncated"], "title": "AreaPage"}, "Coordinate": {"properties": {"lat": {"type": "number", "title": "Lat"}, "lng": {"type": "number", "title": "Lng"}}, "type": "object", "required": ["lat", "lng"], "title": "Coordinate"}, "CreateAreaRequest": {"properties": {"name": {"type": "string", "title": "Name"}, "coordinates": {"items": {"$ref": "#/components/schemas/Coordinate"}, "type": "array", "title": "Coordinates"}}, "type": "object", "required": ["name", "coordinates"], "title": "CreateAreaRequest"}, "HTTPValidationError": {"properties": {"detail": {"items": {"$ref": "#/components/schemas/ValidationError"}, "type": "array", "title": "Detail"}}, "type": "object", "title": "HTTPValidationError"}, "HealthResponse": {"properties": {"status": {"type": "string", "title": "Status"}, "db": {"type": "string", "title": "Db"}, "redis": {"type": "string", "title": "Redis"}}, "type": "object", "required": ["status", "db", "redis"], "title": "HealthResponse"}, "LoginRequest": {"properties": {"email": {"type": "string", "title": "Email"}, "password": {"type": "string", "title": "Password"}}, "type": "object", "required": ["email", "password"], "title": "LoginRequest"}, "RegisterRequest": {"properties": {"email": {"type": "string", "title": "Email"}, "password": {"type": "string", "title": "Password"}, "display_name": {"type": "string", "title": "Display Name"}, "password_hash": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Password Hash"}}, "type": "object", "required": ["email", "password", "display_name"], "title": "RegisterRequest"}, "TokenResponse": {"properties": {"access_token": {"type": "string", "title": "Access Token"}, "refresh_token": {"type": "string", "title": "Refresh Token"}}, "type": "object", "required": ["access_token", "refresh_token"], "title": "TokenResponse"}, "UpdateAreaRequest": {"properties": {"version": {"type": "integer", "title": "Version"}, "name": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Name"}, "coordinates": {"anyOf": [{"items": {"$ref": "#/components/schemas/Coordinate"}, "type": "array"}, {"type": "null"}], "title": "Coordinates"}}, "type": "object", "required": ["version"], "title": "UpdateAreaRequest"}, "User": {"properties": {"id": {"type": "string", "format": "uuid", "title": "Id"}, "email": {"type": "string", "title": "Email"}, "display_name": {"type": "string", "title": "Display Name"}, "password_hash": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Password Hash"}}, "type": "object", "required": ["id", "email", "display_name"], "title": "User"}, "ValidationError": {"properties": {"loc": {"items": {"anyOf": [{"type": "string"}, {"type": "integer"}]}, "type": "array", "title": "Location"}, "msg": {"type": "string", "title": "Message"}, "type": {"type": "string", "title": "Error Type"}, "input": {"title": "Input"}, "ctx": {"type": "object", "title": "Context"}}, "type": "object", "required": ["loc", "msg", "type"], "title": "ValidationError"}}}}
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Snapland API",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health/live": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health Live",
+        "operationId": "health_live_health_live_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Health Live Health Live Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health Ready",
+        "operationId": "health_ready_health_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/db": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health Db",
+        "description": "Verifies that the spatial index is used for viewport queries.",
+        "operationId": "health_db_health_db_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Health Db Health Db Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/register": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Register",
+        "operationId": "register_api_v1_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Login",
+        "operationId": "login_api_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/refresh": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Refresh",
+        "operationId": "refresh_api_v1_auth_refresh_post",
+        "parameters": [
+          {
+            "name": "refresh_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Refresh Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Logout",
+        "operationId": "logout_api_v1_auth_logout_post",
+        "parameters": [
+          {
+            "name": "refresh_token",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Refresh Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/ws-ticket": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Ws Ticket",
+        "operationId": "ws_ticket_api_v1_auth_ws_ticket_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/areas": {
+      "get": {
+        "tags": [
+          "areas"
+        ],
+        "summary": "Get Areas",
+        "operationId": "get_areas_api_v1_areas_get",
+        "parameters": [
+          {
+            "name": "bounds",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "minLng,minLat,maxLng,maxLat",
+              "title": "Bounds"
+            },
+            "description": "minLng,minLat,maxLng,maxLat"
+          },
+          {
+            "name": "zoom",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Zoom"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "description": "Max areas to return (1-1000)",
+              "default": 500,
+              "title": "Limit"
+            },
+            "description": "Max areas to return (1-1000)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AreaPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "areas"
+        ],
+        "summary": "Create Area",
+        "operationId": "create_area_api_v1_areas_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAreaRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Area"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/areas/{area_id}": {
+      "get": {
+        "tags": [
+          "areas"
+        ],
+        "summary": "Get Area",
+        "operationId": "get_area_api_v1_areas__area_id__get",
+        "parameters": [
+          {
+            "name": "area_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Area Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Area"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "areas"
+        ],
+        "summary": "Update Area",
+        "operationId": "update_area_api_v1_areas__area_id__put",
+        "parameters": [
+          {
+            "name": "area_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Area Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAreaRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Area"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "areas"
+        ],
+        "summary": "Delete Area",
+        "operationId": "delete_area_api_v1_areas__area_id__delete",
+        "parameters": [
+          {
+            "name": "area_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Area Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/areas/{area_id}/history": {
+      "get": {
+        "tags": [
+          "areas"
+        ],
+        "summary": "Get History",
+        "operationId": "get_history_api_v1_areas__area_id__history_get",
+        "parameters": [
+          {
+            "name": "area_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Area Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/me": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Get Me",
+        "operationId": "get_me_api_v1_users_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Area": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "coordinates": {
+            "items": {
+              "$ref": "#/components/schemas/Coordinate"
+            },
+            "type": "array",
+            "title": "Coordinates"
+          },
+          "area_km2": {
+            "type": "number",
+            "title": "Area Km2"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Created By"
+          },
+          "last_edited_by": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Last Edited By"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "coordinates",
+          "area_km2",
+          "version",
+          "created_by",
+          "last_edited_by",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "Area"
+      },
+      "AreaPage": {
+        "properties": {
+          "areas": {
+            "items": {
+              "$ref": "#/components/schemas/Area"
+            },
+            "type": "array",
+            "title": "Areas"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "areas",
+          "truncated"
+        ],
+        "title": "AreaPage"
+      },
+      "Coordinate": {
+        "properties": {
+          "lat": {
+            "type": "number",
+            "title": "Lat"
+          },
+          "lng": {
+            "type": "number",
+            "title": "Lng"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lat",
+          "lng"
+        ],
+        "title": "Coordinate"
+      },
+      "CreateAreaRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "coordinates": {
+            "items": {
+              "$ref": "#/components/schemas/Coordinate"
+            },
+            "type": "array",
+            "title": "Coordinates"
+          },
+          "shape_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shape Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "coordinates"
+        ],
+        "title": "CreateAreaRequest"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "db": {
+            "type": "string",
+            "title": "Db",
+            "default": "ok"
+          },
+          "database": {
+            "type": "string",
+            "title": "Database",
+            "default": "ok"
+          },
+          "redis": {
+            "type": "string",
+            "title": "Redis",
+            "default": "ok"
+          },
+          "instance_id": {
+            "type": "string",
+            "title": "Instance Id",
+            "default": ""
+          },
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "default": ""
+          },
+          "version": {
+            "type": "string",
+            "title": "Version",
+            "default": "1.0.0"
+          },
+          "background_tasks": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Background Tasks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "HealthResponse"
+      },
+      "LoginRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest"
+      },
+      "RegisterRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "password_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password Hash"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password",
+          "display_name"
+        ],
+        "title": "RegisterRequest"
+      },
+      "TokenResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "refresh_token": {
+            "type": "string",
+            "title": "Refresh Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "refresh_token"
+        ],
+        "title": "TokenResponse"
+      },
+      "UpdateAreaRequest": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "coordinates": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/Coordinate"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coordinates"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "title": "UpdateAreaRequest"
+      },
+      "User": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "password_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password Hash"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "display_name"
+        ],
+        "title": "User"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
