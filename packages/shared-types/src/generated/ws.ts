@@ -90,7 +90,7 @@ export type Message = string | null;
 export type Retryafterms = number | null;
 
 export interface DrawStartMessage {
-  type?: Type;
+  type: Type;
   payload: DrawStartPayload;
   [k: string]: unknown;
 }
@@ -105,7 +105,7 @@ export interface Coordinate {
   [k: string]: unknown;
 }
 export interface DrawUpdateMessage {
-  type?: Type1;
+  type: Type1;
   payload: DrawUpdatePayload;
   [k: string]: unknown;
 }
@@ -117,7 +117,7 @@ export interface DrawUpdatePayload {
   [k: string]: unknown;
 }
 export interface DrawCommitMessage {
-  type?: Type2;
+  type: Type2;
   payload: DrawCommitPayload;
   [k: string]: unknown;
 }
@@ -128,7 +128,7 @@ export interface DrawCommitPayload {
   [k: string]: unknown;
 }
 export interface DrawCancelMessage {
-  type?: Type3;
+  type: Type3;
   payload: DrawCancelPayload;
   [k: string]: unknown;
 }
@@ -137,7 +137,7 @@ export interface DrawCancelPayload {
   [k: string]: unknown;
 }
 export interface CursorMoveClientMessage {
-  type?: Type4;
+  type: Type4;
   payload: CursorMoveClientPayload;
   [k: string]: unknown;
 }
@@ -148,15 +148,15 @@ export interface CursorMoveClientPayload {
   [k: string]: unknown;
 }
 export interface PingMessage {
-  type?: Type5;
+  type: Type5;
   [k: string]: unknown;
 }
 export interface PongMessage {
-  type?: Type6;
+  type: Type6;
   [k: string]: unknown;
 }
 export interface RemoteDrawMessage {
-  type?: Type7;
+  type: Type7;
   payload: RemoteDrawPayload;
   [k: string]: unknown;
 }
@@ -172,7 +172,7 @@ export interface RemoteDrawPayload {
   [k: string]: unknown;
 }
 export interface CursorMoveServerMessage {
-  type?: Type8;
+  type: Type8;
   payload: CursorMoveServerPayload;
   [k: string]: unknown;
 }
@@ -184,7 +184,7 @@ export interface CursorMoveServerPayload {
   [k: string]: unknown;
 }
 export interface AreaSavedMessage {
-  type?: Type9;
+  type: Type9;
   eventId: Eventid;
   payload: AreaSavedPayload;
   [k: string]: unknown;
@@ -207,7 +207,7 @@ export interface Area {
   [k: string]: unknown;
 }
 export interface AreaUpdatedMessage {
-  type?: Type10;
+  type: Type10;
   eventId: Eventid1;
   payload: AreaUpdatedPayload;
   [k: string]: unknown;
@@ -217,7 +217,7 @@ export interface AreaUpdatedPayload {
   [k: string]: unknown;
 }
 export interface AreaDeletedMessage {
-  type?: Type11;
+  type: Type11;
   eventId: Eventid2;
   payload: AreaDeletedPayload;
   [k: string]: unknown;
@@ -227,7 +227,7 @@ export interface AreaDeletedPayload {
   [k: string]: unknown;
 }
 export interface PresenceSnapshotMessage {
-  type?: Type12;
+  type: Type12;
   payload: PresenceSnapshotPayload;
   [k: string]: unknown;
 }
@@ -241,7 +241,7 @@ export interface PresenceUser {
   [k: string]: unknown;
 }
 export interface UserJoinedMessage {
-  type?: Type13;
+  type: Type13;
   payload: UserJoinedPayload;
   [k: string]: unknown;
 }
@@ -250,7 +250,7 @@ export interface UserJoinedPayload {
   [k: string]: unknown;
 }
 export interface UserLeftMessage {
-  type?: Type14;
+  type: Type14;
   payload: UserLeftPayload;
   [k: string]: unknown;
 }
@@ -259,7 +259,7 @@ export interface UserLeftPayload {
   [k: string]: unknown;
 }
 export interface ResyncRequiredMessage {
-  type?: Type15;
+  type: Type15;
   payload?: ResyncRequiredPayload | null;
   [k: string]: unknown;
 }
@@ -268,7 +268,7 @@ export interface ResyncRequiredPayload {
   [k: string]: unknown;
 }
 export interface ErrorMessage {
-  type?: Type16;
+  type: Type16;
   payload: ErrorPayload;
   [k: string]: unknown;
 }

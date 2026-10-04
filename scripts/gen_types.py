@@ -61,6 +61,15 @@ def main() -> None:
         ws_schema = ta.json_schema()
         ws_schema["title"] = "WebSocketMessage"
 
+        # Ensure discriminator field 'type' is required in all message schemas
+        defs_key = next((k for k in ws_schema if "defs" in k), "$defs")
+        for def_val in ws_schema.get(defs_key, {}).values():
+            if isinstance(def_val, dict) and "properties" in def_val:
+                if "type" in def_val["properties"]:
+                    required = def_val.setdefault("required", [])
+                    if "type" not in required:
+                        required.append("type")
+
         ws_schema_path = backend_dir / "ws_schema.json"
         with open(ws_schema_path, "w", encoding="utf-8") as f:
             json.dump(ws_schema, f, indent=2)
