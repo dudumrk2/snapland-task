@@ -98,19 +98,19 @@ test.describe('Layer Switch Flow', () => {
     await page.keyboard.press('Escape');
   });
 
-  test('fallback on govmap failure', async ({ page }) => {
-    // Route tile requests to 403
-    await page.route('**/*govmap.gov.il*/**', (route) => route.abort('accessdenied'));
+  test('fallback on satellite primary failure', async ({ page }) => {
+    // Route primary satellite tile requests to abort
+    await page.route('**/*arcgisonline.com*/**', (route) => route.abort('accessdenied'));
 
     await loginTestUser(page);
     await page.getByRole('button', { name: /satellite/i }).click();
 
-    // Expect Esri fallback
+    // Expect GovMap fallback
     const toast = page.locator('.toast');
     await expect(toast).toContainText(/fallback/i, { timeout: 10000 });
 
-    // Check if Esri tiles are requested
-    const esriLayer = page.locator('img[src*="arcgisonline.com"]').first();
-    await expect(esriLayer).toBeVisible({ timeout: 10000 });
+    // Check if GovMap fallback tiles are requested
+    const govmapLayer = page.locator('img[src*="govmap.gov.il"]').first();
+    await expect(govmapLayer).toBeVisible({ timeout: 10000 });
   });
 });

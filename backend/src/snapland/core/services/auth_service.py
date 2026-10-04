@@ -37,22 +37,22 @@ class AuthService(IAuthService):
         return hashlib.sha256(token.encode()).hexdigest()
 
     async def register(self, email: str, password: str, display_name: str) -> User:
-        logger.info("Registering user", email=email, display_name=display_name)
+        logger.info("Registering user")
         pwd_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12)).decode()
         user = User(id=uuid.uuid4(), email=email, display_name=display_name, password_hash=pwd_hash)
         created_user = await self.user_repo.create(user)
-        logger.info("User registered successfully", user_id=str(created_user.id), email=email)
+        logger.info("User registered successfully", user_id=str(created_user.id))
         return created_user
 
     async def login(self, email: str, password: str, ip_address: str = "0.0.0.0") -> TokenResponse:
-        logger.info("User login attempt", email=email, ip_address=ip_address)
+        logger.info("User login attempt", ip_address=ip_address)
         user = await self.user_repo.get_by_email(email)
         if not user:
-            logger.warning("Login failed: user not found", email=email)
+            logger.warning("Login failed: user not found")
             raise AuthError("Invalid credentials")
 
         if not user.password_hash or not bcrypt.checkpw(password.encode(), user.password_hash.encode()):
-            logger.warning("Login failed: password mismatch", email=email, user_id=str(user.id))
+            logger.warning("Login failed: password mismatch", user_id=str(user.id))
             raise AuthError("Invalid credentials")
 
         access_token = self._create_access_token(user.id)
@@ -70,7 +70,7 @@ class AuthService(IAuthService):
         )
         await self.session_repo.create(session)
 
-        logger.info("User logged in successfully", user_id=str(user.id), email=email)
+        logger.info("User logged in successfully", user_id=str(user.id))
         return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 
     async def refresh_token(self, refresh_token: str, ip_address: str = "0.0.0.0") -> TokenResponse:

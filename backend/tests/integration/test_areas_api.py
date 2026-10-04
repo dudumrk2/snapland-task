@@ -130,6 +130,16 @@ def test_delete_area(area_service_mock):
     assert response.json() == {"status": "ok"}
     area_service_mock.delete_area.assert_called_once_with(area_id, mock_get_current_user_id())
 
+def test_delete_area_not_found(area_service_mock):
+    from snapland.core.domain.exceptions import NotFoundError
+    area_id = uuid.uuid4()
+    area_service_mock.delete_area.side_effect = NotFoundError("Area not found")
+    
+    response = client.delete(f"/api/v1/areas/{area_id}")
+    
+    assert response.status_code == 404
+    area_service_mock.delete_area.assert_called_once_with(area_id, mock_get_current_user_id())
+
 def test_get_history(area_service_mock):
     area_id = uuid.uuid4()
     area_service_mock.get_history.return_value = []

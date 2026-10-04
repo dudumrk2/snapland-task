@@ -701,7 +701,7 @@ flowchart LR
 | `areaApi` | `IAreaApi` | HTTP area CRUD |
 | `mockWebSocketService` | `IWebSocketService` | Phase 1 mock — same interface, in-memory, simulates presence/delta drawing/disconnects |
 | `mockAreaApi` | `IAreaApi` | Phase 1 mock — same interface, local state, enforces versions (throws `ConflictError`) |
-| `LayerManager` | — | Leaflet base-layer swap: add → cross-fade → remove, timeout/`tileerror` fallback to Esri |
+| `LayerManager` | — | Leaflet base-layer swap: add → cross-fade → remove, timeout/`tileerror` fallback to GovMap |
 | `ProjectionUtils` | — | `[lat,lng]` ↔ `[lng,lat]` conversion, GeoJSON ↔ Leaflet, optional `proj4` transforms |
 | `useWebSocket` | consumes `IWebSocketService` | React hook for WS state |
 | `useDrawing` | — | Polygon drawing state machine, vertex batching (≤ 15 Hz) |
@@ -1073,7 +1073,7 @@ stateDiagram-v2
     Switching --> Satellite_Active : target tiles loaded
     Switching --> OSM_Active : target tiles loaded
     Switching --> Fallback : 5 s timeout or repeated tileerror
-    Fallback --> Satellite_Active : Esri layer active + toast
+    Fallback --> Satellite_Active : GovMap fallback layer active + toast
 ```
 
 **Switch procedure (`LayerManager`):**
@@ -1560,7 +1560,7 @@ TASK — implement in this order:
      areas and drawings ABOVE tilePane (overlays must never depend on the base layer)
    - BaseLayerControl + services/map/LayerManager: OSM ↔ satellite per HLD §11.4 —
      add target layer at opacity 0 → on 'load' cross-fade ~300 ms → remove old layer;
-     5 s timeout or repeated tileerror → Esri fallback + notice; never touch overlay layers,
+     5 s timeout or repeated tileerror → GovMap fallback + notice; never touch overlay layers,
      map center/zoom, or in-progress drawing points
    - DrawingLayer: click-to-add-points; disable map.doubleClickZoom while drawing; live "≈ km²"
      tooltip; Escape to cancel
@@ -1918,7 +1918,7 @@ TASK:
    - drawing.spec.ts: draw a polygon → save → appears in the list with server area_km2
    - layer-switch.spec.ts: draw and save a polygon, switch OSM ↔ satellite (and back): polygon
      screen position and LatLngs unchanged, map center/zoom unchanged, a drawing in progress
-     survives the switch; simulate govmap failure (route tile requests to 403) → Esri fallback
+     survives the switch; simulate satellite primary failure (route tile requests to 403) → GovMap fallback
    - collaboration.spec.ts: two browser contexts — A draws, B sees REMOTE_DRAW deltas and then
      AREA_SAVED; B appears in A's presence bar; concurrent edit of one area → the loser gets the
      ConflictDialog with the current state
