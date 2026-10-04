@@ -13,8 +13,22 @@ logger = structlog.get_logger(__name__)
 
 
 class SpatialService(ISpatialService):
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        max_area_km2: float | None = None,
+        max_polygon_vertices: int | None = None,
+    ) -> None:
+        from snapland.config import settings
+
         self.geod = Geod(ellps="WGS84")
+        self.max_area_km2 = (
+            max_area_km2 if max_area_km2 is not None else settings.MAX_AREA_KM2
+        )
+        self.max_polygon_vertices = (
+            max_polygon_vertices
+            if max_polygon_vertices is not None
+            else settings.MAX_POLYGON_VERTICES
+        )
 
     def _deduplicate_close(self, coordinates: Sequence[Coordinate]) -> list[Coordinate]:
         if not coordinates:
@@ -54,7 +68,7 @@ class SpatialService(ISpatialService):
         if len(poly_coords) - 1 < 3:
             return PolygonValidation(valid=False, reason="TOO_FEW_VERTICES")
 
-        if len(poly_coords) - 1 > 1000:
+        if len(poly_coords) - 1 > self.max_polygon_vertices:
             return PolygonValidation(valid=False, reason="TOO_MANY_VERTICES")
 
         lons = [c.lng for c in poly_coords]
@@ -69,7 +83,7 @@ class SpatialService(ISpatialService):
         if area_km2 < 0.000001:
             return PolygonValidation(valid=False, reason="AREA_TOO_SMALL")
 
-        if area_km2 > 25000.0:
+        if area_km2 > self.max_area_km2:
             return PolygonValidation(valid=False, reason="AREA_TOO_LARGE")
 
         return PolygonValidation(valid=True)

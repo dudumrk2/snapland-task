@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query
 
 from snapland.api.deps import get_area_service, get_rate_limiter
 from snapland.api.v1.auth import get_current_user_id
@@ -13,26 +13,25 @@ router = APIRouter(prefix="/areas", tags=["areas"])
 
 @router.get("", response_model=AreaPage)
 async def get_areas(
-    request: Request,
     bounds: str = Query(..., description="minLng,minLat,maxLng,maxLat"),
     zoom: int | None = Query(None),
-    limit: int = Query(500),
+    limit: int = Query(500, ge=1, le=1000, description="Max areas to return (1-1000)"),
+    user_id: uuid.UUID = Depends(get_current_user_id),
     area_svc=Depends(get_area_service),
     limiter=Depends(get_rate_limiter),
 ):
-    from snapland.api.v1.auth import get_client_ip
-    from snapland.middleware.rate_limiter import check_rate_limit
-    ip = get_client_ip(request)
-    await check_rate_limit(limiter, ip, "http", 100, 60)
+    await check_rate_limit(limiter, str(user_id), "http", 100, 60)
     
     try:
         parts = [float(x) for x in bounds.split(",")]
         if len(parts) != 4:
             raise ValueError()
         min_lng, min_lat, max_lng, max_lat = parts
+        if not (-180.0 <= min_lng <= max_lng <= 180.0) or not (-90.0 <= min_lat <= max_lat <= 90.0):
+            raise ValueError()
     except ValueError:
         from snapland.core.domain.exceptions import ValidationError
-        raise ValidationError("Invalid bounds format. Expected minLng,minLat,maxLng,maxLat")
+        raise ValidationError("Invalid bounds format. Expected minLng,minLat,maxLng,maxLat with min <= max")
         
     return await area_svc.get_areas_in_bounds(min_lng, min_lat, max_lng, max_lat, zoom=zoom, limit=limit)
 

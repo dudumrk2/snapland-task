@@ -96,7 +96,7 @@ This brings up:
 | `REFRESH_TOKEN_EXPIRE_DAYS` | No | `7` | Lifetime in days for refresh token families. |
 | `INSTANCE_ID` | No | Auto-generated | Unique identifier for the backend process instance (included in logs and presence frames). |
 | `WS_ALLOWED_ORIGINS` | No | `*` | Allowed CORS and WebSocket origin whitelist (comma-separated). |
-| `MAX_AREA_KM2` | No | `1000.0` | Maximum allowable polygon surface area in square kilometers. |
+| `MAX_AREA_KM2` | No | `25000.0` | Maximum allowable polygon surface area in square kilometers (~Israel territory). |
 | `MAX_POLYGON_VERTICES` | No | `1000` | Maximum number of coordinate vertices permitted per polygon. |
 
 ---
@@ -121,7 +121,7 @@ Interactive OpenAPI documentation is accessible at `/docs` (Swagger UI) and `/re
 - `POST /api/v1/auth/ws-ticket` — Generate a single-use 30-second ticket for authenticating WebSocket connections.
 
 ### Spatial Areas
-- `GET /api/v1/areas` — Query polygons within a bounding box (`min_lat`, `min_lng`, `max_lat`, `max_lng`, `zoom`, `limit`). Employs PostGIS GiST index and Redis L2 tile caching.
+- `GET /api/v1/areas` — Query polygons within a bounding box (`bounds=minLng,minLat,maxLng,maxLat`, `zoom`, `limit`). Requires Bearer authentication. Employs PostGIS GiST index and Redis L2 tile caching.
 - `GET /api/v1/areas/{id}` — Retrieve a single area by UUID.
 - `POST /api/v1/areas` — Create a new polygon. Validates geometry topology (`ST_IsValid`) and calculates geodesic area (`ST_Area`).
 - `PUT /api/v1/areas/{id}` — Update area geometry or name using Optimistic Concurrency Control (`version` check).
@@ -185,15 +185,11 @@ Full benchmark details, latency percentiles, and query execution plans are docum
 
 ## Architecture Decisions Summary
 
-- **ADR-001: PostGIS for Spatial Computation**  
+- **ADR-001: PostGIS for Spatial Computation and Storage**  
   Uses PostgreSQL with PostGIS to compute spherical geodesics (`WGS84`, SRID 4326) and index geometries with GiST R-trees (`areas_geom_gist`), delivering sub-10 ms bounding-box queries even at 100,000 polygons.
 - **ADR-002: Hybrid Redis Pub/Sub & Streams Architecture**  
-  Ephemeral real-time events (such as 10 Hz cursor movements) stream through lightweight Redis Pub/Sub channels. Durable state changes (`AREA_SAVED`, `AREA_DELETED`) persist to Redis Streams (`snapland:events`), allowing clients to resume missed events with `lastEventId`.
+  Ephemeral real-time events (such as 10 Hz cursor movements) stream through lightweight Redis Pub/Sub channels. Durable state changes (`AREA_CREATED`, `AREA_UPDATED`, `AREA_DELETED`) persist to Redis Streams (`areas:events`), allowing clients to resume missed events with `lastEventId`.
 - **ADR-003: Optimistic Concurrency Control (OCC)**  
-  Area records enforce an integer `version` field. Concurrent edits conflict with HTTP 409 (`CONFLICT`), prompting the client to re-sync rather than overwriting updates.
-- **ADR-004: Decoupled Outbound WebSocket Queues**  
-  Each connected client has a dedicated in-memory queue (`asyncio.Queue(maxsize=100)`) with micro-batching (50 ms frames) and an ephemeral drop policy to ensure slow network clients never degrade backend server throughput.
-- **ADR-005: Dual-Layer Viewport Caching**  
-  Viewport tile queries are cached with a spatial key in Redis (TTL: 60s). Cache entries are selectively invalidated whenever an area within that region is modified.
-- **ADR-006: Production Hardening & Observability**  
-  All log outputs are structured JSON via `structlog` with automated credential and PII sanitization. Full Prometheus metrics expose 12 core operational metrics. Enforces strict 30-second request and database statement timeouts (`asyncio.wait_for` + PostgreSQL `statement_timeout`). Automated data retention pruning runs daily at 02:00 UTC under a distributed Redis lock.
+  Area records enforce an integer `version` field. Concurrent edits conflict with HTTP 409 (`CONFLICT`), returning the latest remote entity for 3-way client resolution rather than overwriting updates.
+- **ADR-004: Projections & Satellite Basemap Source**  
+  Esri World Imagery serves as the primary high-resolution satellite basemap in Web Mercator (EPSG:3857), with GovMap Israel vector tiles serving as automatic fallback upon tile load failures.

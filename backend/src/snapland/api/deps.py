@@ -44,7 +44,10 @@ def get_auth_service(db: AsyncSession = Depends(get_db), redis = Depends(get_red
 
 def build_area_service(session: AsyncSession, app_state: Any) -> AreaService:
     repo = AreaRepository(session)
-    spatial = SpatialService()
+    spatial = SpatialService(
+        max_area_km2=settings.MAX_AREA_KM2,
+        max_polygon_vertices=settings.MAX_POLYGON_VERTICES,
+    )
     audit = AuditService()
     cache = getattr(app_state, "cache_repo", None)
     if not cache and hasattr(app_state, "redis") and app_state.redis:

@@ -45,6 +45,7 @@ services:
       context: ../backend
       dockerfile: Dockerfile
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --ws-ping-interval 30 --ws-ping-timeout 10
+    # deploy.replicas is standard for Compose v2/Swarm; to guarantee 2 replicas across all Compose versions, use --scale backend=2
     deploy:
       replicas: 2
     depends_on:
@@ -67,7 +68,7 @@ services:
       ACCESS_TOKEN_EXPIRE_MINUTES: 15
       REFRESH_TOKEN_EXPIRE_DAYS: 7
       WS_ALLOWED_ORIGINS: "*"
-      MAX_AREA_KM2: "1000.0"
+      MAX_AREA_KM2: "25000.0"
       MAX_POLYGON_VERTICES: "1000"
       JWT_KEYS_DIR: /tmp/keys
       JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:-}
