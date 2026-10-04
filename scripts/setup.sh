@@ -199,7 +199,11 @@ seed_database() {
     local count="${1:-1000}"
     info "Seeding database with $count polygons..."
 
-    if command -v python3 &>/dev/null; then
+    if [ -f ".venv/bin/python" ]; then
+        .venv/bin/python scripts/seed_db.py --polygons "$count"
+    elif [ -f ".venv/Scripts/python.exe" ]; then
+        .venv/Scripts/python.exe scripts/seed_db.py --polygons "$count"
+    elif command -v python3 &>/dev/null; then
         python3 scripts/seed_db.py --polygons "$count"
     elif command -v python &>/dev/null; then
         python scripts/seed_db.py --polygons "$count"

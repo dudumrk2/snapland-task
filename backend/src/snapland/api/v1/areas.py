@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query
 
 from snapland.api.deps import get_area_service, get_rate_limiter
 from snapland.api.v1.auth import get_current_user_id
@@ -13,15 +13,13 @@ router = APIRouter(prefix="/areas", tags=["areas"])
 
 @router.get("", response_model=AreaPage)
 async def get_areas(
-    request: Request,
     bounds: str = Query(..., description="minLng,minLat,maxLng,maxLat"),
     zoom: int | None = Query(None),
-    limit: int = Query(500),
+    limit: int = Query(500, ge=1, le=1000, description="Max areas to return (1-1000)"),
     user_id: uuid.UUID = Depends(get_current_user_id),
     area_svc=Depends(get_area_service),
     limiter=Depends(get_rate_limiter),
 ):
-    from snapland.middleware.rate_limiter import check_rate_limit
     await check_rate_limit(limiter, str(user_id), "http", 100, 60)
     
     try:
