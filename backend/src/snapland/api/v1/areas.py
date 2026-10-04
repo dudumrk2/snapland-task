@@ -27,9 +27,11 @@ async def get_areas(
         if len(parts) != 4:
             raise ValueError()
         min_lng, min_lat, max_lng, max_lat = parts
+        if not (-180.0 <= min_lng <= max_lng <= 180.0) or not (-90.0 <= min_lat <= max_lat <= 90.0):
+            raise ValueError()
     except ValueError:
         from snapland.core.domain.exceptions import ValidationError
-        raise ValidationError("Invalid bounds format. Expected minLng,minLat,maxLng,maxLat")
+        raise ValidationError("Invalid bounds format. Expected minLng,minLat,maxLng,maxLat with min <= max")
         
     return await area_svc.get_areas_in_bounds(min_lng, min_lat, max_lng, max_lat, zoom=zoom, limit=limit)
 

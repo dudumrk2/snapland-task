@@ -80,7 +80,7 @@ Run all scripts from the `frontend/` directory:
 
 ### 1. Satellite Imagery & Basemaps (ADR 004)
 - **Primary Basemap**: High-resolution **Esri World Imagery** satellite tiles (`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}`).
-- **Fallback Basemap**: OpenStreetMap standard cartographic layer.
+- **Fallback Basemap**: **GovMap Israel** cartographic layer (`https://cdnil.govmap.gov.il/xyz/heb/{z}/{x}/{y}.png`), activated automatically upon satellite tile load failures or timeouts. OpenStreetMap is supported as an alternate cartographic basemap.
 - **Israel Bounding Constraint**: Initial view is centered on central Israel (`[32.0853, 34.7818]`, zoom 10) with map panning clamped to the Israeli region `[34.2, 29.5, 35.8, 33.3]` to optimize viewport spatial caching.
 
 ### 2. Live Drawing & Geodesic Calculation

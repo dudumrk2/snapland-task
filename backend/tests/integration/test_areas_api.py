@@ -64,6 +64,20 @@ def test_get_areas_unauthorized(area_service_mock):
     finally:
         app.dependency_overrides[get_current_user_id] = mock_get_current_user_id
 
+def test_get_areas_invalid_bounds(area_service_mock):
+    # Inverted min/max coordinates
+    response = client.get("/api/v1/areas?bounds=35.0,31.0,34.0,32.0")
+    assert response.status_code == 400
+    assert "Invalid bounds format" in response.json()["message"]
+
+    # Malformed coordinate string
+    response = client.get("/api/v1/areas?bounds=34.0,31.0,35.0")
+    assert response.status_code == 400
+
+    # Out-of-range coordinates
+    response = client.get("/api/v1/areas?bounds=34.0,-95.0,35.0,32.0")
+    assert response.status_code == 400
+
 def test_create_area(area_service_mock):
     area_id = uuid.uuid4()
     user_id = mock_get_current_user_id()

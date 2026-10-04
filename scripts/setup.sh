@@ -141,13 +141,15 @@ setup_local() {
     PYTHON_CMD=""
     for cmd in python3.12 python3 python; do
         if command -v "$cmd" &>/dev/null; then
-            PYTHON_CMD="$cmd"
-            break
+            if "$cmd" -c "import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)" &>/dev/null; then
+                PYTHON_CMD="$cmd"
+                break
+            fi
         fi
     done
 
     if [ -z "$PYTHON_CMD" ]; then
-        error "Python is not installed. Python 3.12+ is required."
+        error "Python 3.12+ is required. Please install Python 3.12 or newer."
         exit 1
     fi
 
@@ -170,8 +172,7 @@ setup_local() {
     info "Installing backend dependencies..."
     pip install --upgrade pip
     pip install hatchling
-    pip install -e backend/
-    pip install pytest pytest-asyncio pytest-cov httpx fakeredis ruff mypy
+    pip install -e "backend/[dev]"
 
     info "Setting up frontend dependencies..."
     if ! command -v npm &>/dev/null; then
